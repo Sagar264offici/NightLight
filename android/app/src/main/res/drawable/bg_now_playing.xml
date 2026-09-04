@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ambient night-sky gradient behind the Now Playing screen. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="@color/nightlight_ambient_a"
+        android:centerColor="@color/nightlight_ambient_b"
+        android:endColor="@color/nightlight_navy_deep" />
+</shape>

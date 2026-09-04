@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="NightLightNavIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/nightlight_navy_soft</item>
+    </style>
+
+    <style name="NightLightSectionTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">@color/nightlight_cream</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="NightLightSearchField" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxStrokeColor">@color/nightlight_navy_soft</item>
+        <item name="hintTextColor">@color/nightlight_cream_dim</item>
+    </style>
+</resources>

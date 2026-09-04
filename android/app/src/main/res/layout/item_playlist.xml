@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/playlist_row"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:minHeight="72dp"
+    android:orientation="horizontal"
+    android:padding="12dp">
+
+    <ImageView
+        android:id="@+id/playlist_artwork"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/bg_artwork_placeholder"
+        android:contentDescription="@string/artwork_desc"
+        android:scaleType="centerCrop" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="14dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/playlist_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/nightlight_cream"
+            android:textSize="@dimen/track_title" />
+
+        <TextView
+            android:id="@+id/playlist_count"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/nightlight_cream_dim"
+            android:textSize="@dimen/track_subtitle" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/playlist_more"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/cd_more"
+        android:src="@drawable/ic_more_vert" />
+</LinearLayout>

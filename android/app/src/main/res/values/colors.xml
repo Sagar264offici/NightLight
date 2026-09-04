@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Midnight navy / night sky -->
+    <color name="nightlight_ambient_a">#232C57</color>
+    <color name="nightlight_ambient_b">#121A3B</color>
+    <color name="nightlight_navy_deep">#0A0D16</color>
+    <color name="nightlight_navy">#10142B</color>
+    <color name="nightlight_navy_soft">#1A2140</color>
+    <color name="nightlight_navy_card">#151B38</color>
+
+    <!-- Moonlight cream / warm gold -->
+    <color name="nightlight_cream">#F3EAD6</color>
+    <color name="nightlight_cream_dim">#C9C0AC</color>
+    <color name="nightlight_gold">#E9C46A</color>
+    <color name="nightlight_gold_dim">#B9954A</color>
+
+    <!-- Stars / supporting -->
+    <color name="nightlight_star">#AEB8D8</color>
+    <color name="nightlight_error">#E76F51</color>
+    <color name="nightlight_success">#7BD389</color>
+
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+    <color name="transparent">#00000000</color>
+</resources>

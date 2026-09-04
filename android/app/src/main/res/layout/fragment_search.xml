@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/nightlight_navy_deep"
+    android:orientation="vertical">
+
+    <EditText
+        android:id="@+id/search_input"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginTop="14dp"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:background="@drawable/bg_search_bar"
+        android:drawableStart="@drawable/ic_search"
+        android:drawablePadding="12dp"
+        android:drawableTint="@color/nightlight_cream_dim"
+        android:hint="@string/home_search_hint"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:maxLines="1"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:textColor="@color/nightlight_cream"
+        android:textColorHint="@color/nightlight_cream_dim"
+        android:textSize="15sp" />
+
+    <!-- Results list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/search_results"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="6dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp"
+        android:scrollbars="none" />
+
+    <!-- Recent searches -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/search_recent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="6dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:scrollbars="none" />
+
+    <!-- State view (loading / empty / error / offline / rate limited) -->
+    <LinearLayout
+        android:id="@+id/search_state"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/search_state_progress"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:indeterminateTint="@color/nightlight_gold" />
+
+        <ImageView
+            android:id="@+id/search_state_icon"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:alpha="0.7"
+            android:contentDescription="@string/empty_search_hint"
+            android:src="@drawable/ic_music_note"
+            app:tint="@color/nightlight_star"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/search_state_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:textColor="@color/nightlight_cream_dim"
+            android:textSize="15sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/search_state_retry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/action_retry"
+            android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>

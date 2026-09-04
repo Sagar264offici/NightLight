@@ -1,0 +1,332 @@
+package com.nightlight.app.data.repo;
+
+import android.content.Context;
+
+import com.nightlight.app.data.api.ApiClient;
+import com.nightlight.app.data.api.MusicApi;
+import com.nightlight.app.data.api.dto.ApiResponse;
+import com.nightlight.app.data.api.dto.LyricsDtos;
+import com.nightlight.app.data.api.dto.SongDtos;
+import com.nightlight.app.data.api.dto.TrendingDtos;
+import com.nightlight.app.data.api.dto.WeatherDtos;
+import com.nightlight.app.domain.model.Track;
+import com.nightlight.app.util.AppExecutors;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+
+/**
+ * All music-provider access. Search results include playable stream URLs;
+ * library snapshots must be resolved via {@link #resolveTracks} before
+ * playback (JioSaavn media URLs expire).
+ */
+public final class MusicRepository {
+
+    public interface SearchCallback {
+        void onSuccess(List<Track> tracks, int total, int page);
+
+        void onFailure(Throwable error);
+    }
+
+    public interface TracksCallback {
+        void onSuccess(List<Track> tracks);
+
+        void onFailure(Throwable error);
+    }
+
+    public interface LyricsCallback {
+        void onSuccess(LyricsDtos.LyricsDto lyrics);
+
+        void onFailure(Throwable error);
+    }
+
+    public interface TrendingCallback {
+        void onSuccess(TrendingDtos.TrendingDto trending);
+
+        void onFailure(Throwable error);
+    }
+
+    public interface WeatherCallback {
+        void onSuccess(WeatherDtos.WeatherDto weather);
+
+        void onFailure(Throwable error);
+    }
+
+    private final Context app;
+    private final MusicApi api;
+    private final com.nightlight.app.data.api.NightLightApi nightLightApi;
+
+    /** One in-flight song-detail fetch per id-list signature. */
+    private final ConcurrentHashMap<String, List<TracksCallback>> pending = new ConcurrentHashMap<>();
+
+    public MusicRepository(Context context) {
+        this.app = context.getApplicationContext();
+        this.api = ApiClient.musicApi(app);
+        this.nightLightApi = ApiClient.nightLightApi(app);
+    }
+
+    public void searchSongs(String query, int page, int limit, SearchCallback callback) {
+        api.searchSongs(query, page, limit).enqueue(new Callback<ApiResponse<SongDtos.SearchSongsDto>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<SongDtos.SearchSongsDto>> call,
+                                   Response<ApiResponse<SongDtos.SearchSongsDto>> response) {
+                ApiResponse<SongDtos.SearchSongsDto> body = response.body();
+                if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
+                    callback.onFailure(new HttpStatusException(response.code(), body != null ? body.code : null));
+                    return;
+                }
+                List<Track> tracks = new ArrayList<>();
+                if (body.data.results != null) {
+                    for (SongDtos.SongDto song : body.data.results) {
+                        if (song.id != null) {
+                            tracks.add(Track.fromSong(song));
+                        }
+                    }
+                }
+                callback.onSuccess(tracks, body.data.total, page);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<SongDtos.SearchSongsDto>> call, Throwable t) {
+                callback.onFailure(t);
+            }
+        });
+    }
+
+    /**
+     * Fetches a radio batch of OTHER songs related to the seed track. Used for
+     * auto-next when a queue ends and for same-genre shuffle top-ups.
+     */
+    public void fetchRadio(Track seed, int limit, SearchCallback callback) {
+        if (seed == null || seed.id == null) {
+            AppExecutors.onMain(() -> callback.onFailure(new IllegalStateException("No seed track")));
+            return;
+        }
+        api.getRadio(seed.id, seed.name, seed.artists, seed.album, limit)
+                .enqueue(new Callback<ApiResponse<SongDtos.SearchSongsDto>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<SongDtos.SearchSongsDto>> call,
+                                           Response<ApiResponse<SongDtos.SearchSongsDto>> response) {
+                        ApiResponse<SongDtos.SearchSongsDto> body = response.body();
+                        if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
+                            callback.onFailure(new HttpStatusException(response.code(), body != null ? body.code : null));
+                            return;
+                        }
+                        List<Track> tracks = new ArrayList<>();
+                        if (body.data.results != null) {
+                            for (SongDtos.SongDto song : body.data.results) {
+                                if (song.id != null) {
+                                    tracks.add(Track.fromSong(song));
+                                }
+                            }
+                        }
+                        callback.onSuccess(tracks, body.data.total, 0);
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiResponse<SongDtos.SearchSongsDto>> call, Throwable t) {
+                        callback.onFailure(t);
+                    }
+                });
+    }
+
+    /**
+     * Real trending data from the backend (JioSaavn charts). Cache is handled
+     * server-side; this is safe to call once per Home open.
+     */
+    public void fetchTrending(TrendingCallback callback) {
+        api.getTrending().enqueue(new Callback<ApiResponse<TrendingDtos.TrendingDto>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<TrendingDtos.TrendingDto>> call,
+                                   Response<ApiResponse<TrendingDtos.TrendingDto>> response) {
+                ApiResponse<TrendingDtos.TrendingDto> body = response.body();
+                if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
+                    callback.onFailure(new HttpStatusException(response.code(),
+                            body != null ? body.code : null));
+                    return;
+                }
+                callback.onSuccess(body.data);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<TrendingDtos.TrendingDto>> call, Throwable t) {
+                callback.onFailure(t);
+            }
+        });
+    }
+
+    /** Server-side weather (Open-Meteo proxied; no keys in the app). */
+    public void fetchWeather(WeatherCallback callback) {
+        nightLightApi.getWeather().enqueue(new Callback<ApiResponse<WeatherDtos.WeatherDto>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<WeatherDtos.WeatherDto>> call,
+                                   Response<ApiResponse<WeatherDtos.WeatherDto>> response) {
+                ApiResponse<WeatherDtos.WeatherDto> body = response.body();
+                if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
+                    callback.onFailure(new HttpStatusException(response.code(),
+                            body != null ? body.code : null));
+                    return;
+                }
+                callback.onSuccess(body.data);
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<WeatherDtos.WeatherDto>> call, Throwable t) {
+                callback.onFailure(t);
+            }
+        });
+    }
+
+    /** Synchronized lyrics for the current track (server-resolved). */
+    public void fetchLyrics(Track track, LyricsCallback callback) {
+        api.getLyrics(track.name, track.artists, track.album, track.durationMs)
+                .enqueue(new Callback<ApiResponse<LyricsDtos.LyricsDto>>() {
+                    @Override
+                    public void onResponse(Call<ApiResponse<LyricsDtos.LyricsDto>> call,
+                                           Response<ApiResponse<LyricsDtos.LyricsDto>> response) {
+                        ApiResponse<LyricsDtos.LyricsDto> body = response.body();
+                        if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
+                            callback.onFailure(new HttpStatusException(response.code(),
+                                    body != null ? body.code : null));
+                            return;
+                        }
+                        callback.onSuccess(body.data);
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiResponse<LyricsDtos.LyricsDto>> call, Throwable t) {
+                        callback.onFailure(t);
+                    }
+                });
+    }
+
+    /**
+     * Fetches fresh song details (including stream URLs) for a list of track
+     * ids. Batches ids into single requests; dedupes concurrent requests.
+     */
+    public void getTracksByIds(List<String> ids, TracksCallback callback) {
+        List<String> unique = new ArrayList<>();
+        for (String id : ids) {
+            if (id != null && !unique.contains(id)) {
+                unique.add(id);
+            }
+        }
+        if (unique.isEmpty()) {
+            AppExecutors.onMain(() -> callback.onSuccess(new ArrayList<>()));
+            return;
+        }
+
+        String key = String.join(",", unique);
+        List<TracksCallback> waiters = pending.computeIfAbsent(key, k -> new ArrayList<>());
+        synchronized (waiters) {
+            waiters.add(callback);
+            if (waiters.size() > 1) {
+                // Another request for the same ids is in flight.
+                return;
+            }
+        }
+
+        fetchChunk(unique, key, 0);
+    }
+
+    private void fetchChunk(List<String> ids, String key, int from) {
+        int to = Math.min(from + 20, ids.size());
+        List<String> chunk = ids.subList(from, to);
+
+        api.getSongs(String.join(",", chunk)).enqueue(new Callback<ApiResponse<List<SongDtos.SongDto>>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<List<SongDtos.SongDto>>> call,
+                                   Response<ApiResponse<List<SongDtos.SongDto>>> response) {
+                ApiResponse<List<SongDtos.SongDto>> body = response.body();
+                if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
+                    deliverError(key, new HttpStatusException(response.code(), body != null ? body.code : null));
+                    return;
+                }
+                if (to < ids.size()) {
+                    fetchChunk(ids, key, to);
+                } else {
+                    List<Track> tracks = new ArrayList<>();
+                    for (SongDtos.SongDto song : body.data) {
+                        if (song.id != null) {
+                            tracks.add(Track.fromSong(song));
+                        }
+                    }
+                    deliverSuccess(key, tracks);
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<List<SongDtos.SongDto>>> call, Throwable t) {
+                deliverError(key, t);
+            }
+        });
+    }
+
+    /** Converts library snapshots into playable tracks (fresh stream URLs). */
+    public void resolveTracks(List<Track> snapshots, TracksCallback callback) {
+        List<String> ids = new ArrayList<>();
+        for (Track t : snapshots) {
+            ids.add(t.id);
+        }
+        getTracksByIds(ids, new TracksCallback() {
+            @Override
+            public void onSuccess(List<Track> fresh) {
+                // Rebuild in the original order so queues stay consistent.
+                java.util.Map<String, Track> byId = new java.util.HashMap<>();
+                for (Track t : fresh) {
+                    byId.put(t.id, t);
+                }
+                List<Track> ordered = new ArrayList<>();
+                for (Track original : snapshots) {
+                    Track resolved = byId.get(original.id);
+                    ordered.add(resolved != null ? resolved : original);
+                }
+                callback.onSuccess(ordered);
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                callback.onFailure(error);
+            }
+        });
+    }
+
+    private void deliverSuccess(String key, List<Track> tracks) {
+        List<TracksCallback> waiters = pending.remove(key);
+        if (waiters == null) {
+            return;
+        }
+        synchronized (waiters) {
+            for (TracksCallback c : waiters) {
+                AppExecutors.onMain(() -> c.onSuccess(tracks));
+            }
+        }
+    }
+
+    private void deliverError(String key, Throwable error) {
+        List<TracksCallback> waiters = pending.remove(key);
+        if (waiters == null) {
+            return;
+        }
+        synchronized (waiters) {
+            for (TracksCallback c : waiters) {
+                AppExecutors.onMain(() -> c.onFailure(error));
+            }
+        }
+    }
+
+    public static final class HttpStatusException extends Exception {
+        public final int status;
+
+        public HttpStatusException(int status, String code) {
+            super("HTTP " + status + (code != null ? " (" + code + ")" : ""));
+            this.status = status;
+        }
+    }
+}

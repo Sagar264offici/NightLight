@@ -1,0 +1,87 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Optional override for ADB testing against a physical device on the LAN:
+//   ./gradlew assembleDebug -PnightlightApiUrl=http://192.168.1.50:8787/api/
+def nightlightApiUrl = project.hasProperty('nightlightApiUrl')
+        ? project.property('nightlightApiUrl')
+        : 'http://10.0.2.2:8787/api/'
+
+android {
+    namespace 'com.nightlight.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.nightlight.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    buildTypes {
+        debug {
+            // Emulator reaches the host machine via 10.0.2.2.
+            buildConfigField 'String', 'API_BASE_URL', "\"${nightlightApiUrl}\""
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Production deployments must point at a real HTTPS host via
+            // -PnightlightApiUrl=https://api.nightlight.example/api/
+            def prodUrl = project.hasProperty('nightlightApiUrl') ? nightlightApiUrl : 'https://api.nightlight.app/api/'
+            buildConfigField 'String', 'API_BASE_URL', "\"${prodUrl}\""
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+    // AndroidX core
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.activity:activity:1.9.3'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'com.google.android.material:material:1.12.0'
+
+    // MVVM
+    implementation 'androidx.lifecycle:lifecycle-viewmodel:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-livedata:2.8.7'
+
+    // Local persistence
+    implementation 'androidx.room:room-runtime:2.6.1'
+    annotationProcessor 'androidx.room:room-compiler:2.6.1'
+
+    // Networking
+    implementation 'com.squareup.retrofit2:retrofit:2.11.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+
+    // Playback (Media3 / ExoPlayer)
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-session:1.4.1'
+    implementation 'androidx.media3:media3-datasource:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
+
+    // Images
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+
+    // Secure token storage
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    testImplementation 'junit:junit:4.13.2'
+}

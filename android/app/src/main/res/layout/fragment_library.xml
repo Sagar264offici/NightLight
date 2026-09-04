@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/library_scroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/nightlight_navy_deep"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingTop="20dp"
+                android:text="@string/nav_library"
+                android:textColor="@color/nightlight_cream"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/library_import"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="10dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/cd_import"
+                android:padding="11dp"
+                android:src="@drawable/ic_import"
+                app:tint="@color/nightlight_cream" />
+        </LinearLayout>
+
+        <!-- Liked songs -->
+        <LinearLayout
+            android:id="@+id/library_liked_row"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="14dp"
+            android:layout_marginEnd="@dimen/screen_padding"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_artwork_placeholder"
+                android:contentDescription="@string/section_liked_songs"
+                android:padding="11dp"
+                android:src="@drawable/ic_favorite"
+                app:tint="@color/nightlight_gold" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:text="@string/section_liked_songs"
+                android:textColor="@color/nightlight_cream"
+                android:textSize="@dimen/track_title"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/library_liked_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@string/action_more"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="@color/nightlight_cream_dim" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/library_likes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:nestedScrollingEnabled="false"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/library_likes_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:gravity="center"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:text="@string/empty_likes"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <!-- Playlists -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/screen_padding"
+            android:paddingTop="24dp"
+            android:paddingEnd="@dimen/screen_padding">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/section_your_playlists"
+                android:textAppearance="@style/NightLightSectionTitle" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/library_new_playlist"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="@string/action_new_playlist" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/library_playlists"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:nestedScrollingEnabled="false"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/library_playlists_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:gravity="center"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:text="@string/empty_playlists"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="24dp" />
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

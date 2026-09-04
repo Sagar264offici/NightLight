@@ -1,0 +1,332 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/home_scroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/nightlight_navy_deep"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Brand header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/screen_padding"
+            android:paddingTop="18dp"
+            android:paddingEnd="@dimen/screen_padding">
+
+            <ImageView
+                android:id="@+id/home_logo"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/nightlight_logo" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/home_greeting"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/nightlight_gold"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textColor="@color/nightlight_cream"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/home_settings"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/action_settings"
+                android:src="@drawable/ic_settings" />
+        </LinearLayout>
+
+        <!-- Search bar -->
+        <LinearLayout
+            android:id="@+id/home_search_bar"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="18dp"
+            android:layout_marginEnd="@dimen/screen_padding"
+            android:background="@drawable/bg_search_bar"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@string/action_search"
+                android:src="@drawable/ic_search" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="@string/home_search_hint"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <!-- Mood selector -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="24dp"
+            android:text="@string/mood_question"
+            android:textAppearance="@style/NightLightSectionTitle" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:clipToPadding="false"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/home_mood_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <!-- For you right now (time + weather + mood context) -->
+        <TextView
+            android:id="@+id/home_for_you_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="26dp"
+            android:textColor="@color/nightlight_gold"
+            android:textSize="19sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/home_for_you_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/nightlight_cream_dim"
+            android:textSize="12sp" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/home_for_you"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:nestedScrollingEnabled="false"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/home_for_you_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:text="@string/empty_for_you"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <!-- Trending now (real chart data from the music API) -->
+        <TextView
+            android:id="@+id/home_trending_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="26dp"
+            android:text="@string/section_trending"
+            android:textAppearance="@style/NightLightSectionTitle" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/home_trending"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:nestedScrollingEnabled="false"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/home_trending_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:text="@string/empty_trending"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <!-- Recently played -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="26dp"
+            android:text="@string/section_recently_played"
+            android:textAppearance="@style/NightLightSectionTitle" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/home_recent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:nestedScrollingEnabled="false"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/home_recent_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="@string/empty_recently_played"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <!-- Liked songs shortcut -->
+        <LinearLayout
+            android:id="@+id/home_liked_row"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="14dp"
+            android:layout_marginEnd="@dimen/screen_padding"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_artwork_placeholder"
+                android:contentDescription="@string/section_liked_songs"
+                android:padding="11dp"
+                android:src="@drawable/ic_favorite"
+                app:tint="@color/nightlight_gold" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:text="@string/section_liked_songs"
+                android:textColor="@color/nightlight_cream"
+                android:textSize="@dimen/track_title"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/home_liked_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@string/action_more"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="@color/nightlight_cream_dim" />
+        </LinearLayout>
+
+        <!-- Playlists -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_padding"
+            android:layout_marginTop="26dp"
+            android:text="@string/section_your_playlists"
+            android:textAppearance="@style/NightLightSectionTitle" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/home_playlists"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:nestedScrollingEnabled="false"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:scrollbars="none" />
+
+            <TextView
+                android:id="@+id/home_playlists_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="@string/empty_playlists"
+                android:textColor="@color/nightlight_cream_dim"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="24dp" />
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
