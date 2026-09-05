@@ -26,8 +26,8 @@ import java.util.Set;
  */
 public final class SmartShuffleEngine {
 
-    /** Selection temperature: higher = stronger pull toward top scores. */
-    private static final double TEMPERATURE = 2.4;
+    /** Selection temperature: lower = stronger pull toward top scores, less random. */
+    private static final double TEMPERATURE = 1.6;
     private static final int MAX_QUEUE = 30;
 
     private final Random random;
@@ -142,10 +142,10 @@ public final class SmartShuffleEngine {
                 mood = value * (0.35 + 0.65 * ctx.moodConfidence);
             }
         }
-        double seedArtist = artist.equals(norm(ctx.seedArtist)) ? 0.10 : 0;
-        double seedAlbum = album.equals(norm(ctx.seedAlbum)) ? 0.07 : 0;
-        double like = likedIds.contains(t.id) ? 0.08 : 0;
-        double relevance = Math.min(1.0, 0.5 * mood + seedArtist + seedAlbum + like + 0.10);
+        double seedArtist = artist.equals(norm(ctx.seedArtist)) ? 0.20 : 0;
+        double seedAlbum = album.equals(norm(ctx.seedAlbum)) ? 0.12 : 0;
+        double like = likedIds.contains(t.id) ? 0.12 : 0;
+        double relevance = Math.min(1.0, 0.45 * mood + seedArtist + seedAlbum + like + 0.15);
 
         // Anti-repetition penalties.
         double penalty = 0;

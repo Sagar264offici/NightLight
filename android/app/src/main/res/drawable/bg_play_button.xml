@@ -1,24 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Premium gold play button with a soft highlight gradient. -->
+<!-- Premium play/pause: outer moon-glow, gradient sphere, luminous rim. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Wide soft glow (two translucent rings read as one bloom) -->
     <item>
         <shape android:shape="oval">
-            <solid android:color="#4DE9C46A" />
+            <solid android:color="#33E9C46A" />
         </shape>
     </item>
     <item
-        android:bottom="3dp"
-        android:left="3dp"
-        android:right="3dp"
-        android:top="3dp">
+        android:bottom="7dp"
+        android:left="7dp"
+        android:right="7dp"
+        android:top="7dp">
+        <shape android:shape="oval">
+            <solid android:color="#59E9C46A" />
+        </shape>
+    </item>
+    <!-- Body -->
+    <item
+        android:bottom="5dp"
+        android:left="5dp"
+        android:right="5dp"
+        android:top="5dp">
         <shape android:shape="oval">
             <gradient
                 android:angle="315"
-                android:endColor="#C9973F"
-                android:startColor="#F6D98B" />
+                android:startColor="#FFF3D98F"
+                android:centerColor="#F0D9A054"
+                android:endColor="#C9973F" />
             <stroke
                 android:width="1dp"
-                android:color="#8CF3E3B0" />
+                android:color="#B8FFF2CE" />
+        </shape>
+    </item>
+    <!-- Top specular highlight -->
+    <item
+        android:bottom="24dp"
+        android:left="14dp"
+        android:right="14dp"
+        android:top="9dp">
+        <shape android:shape="oval">
+            <gradient
+                android:angle="270"
+                android:startColor="#66FFFFFF"
+                android:centerColor="#1EFFFFFF"
+                android:endColor="#00FFFFFF" />
         </shape>
     </item>
 </layer-list>

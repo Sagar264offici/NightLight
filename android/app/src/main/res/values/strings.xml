@@ -116,7 +116,7 @@
     <string name="listen_join_hint">Enter the 6-letter code</string>
     <string name="listen_starting">Starting session…</string>
     <string name="listen_joined">Joined session %1$s</string>
-    <string name="listen_share_body">🎵 Listen with me on NightLight — session code %1$s
+    <string name="listen_share_body">Listen with me on NightLight — session code %1$s
 
 https://nightlight.app/l/%2$s</string>
     <string name="listen_share_title">Join my NightLight session</string>
@@ -161,6 +161,8 @@ https://nightlight.app/l/%2$s</string>
     <string name="lyrics_loading">Loading lyrics…</string>
     <string name="lyrics_none">No lyrics available for this song</string>
     <string name="lyrics_instrumental">♪ Instrumental — no lyrics</string>
+    <string name="lyrics_resume_current">Resume current line</string>
+
     <string name="import_positive">Import</string>
     <string name="import_progress">Matching songs to the library…</string>
     <string name="import_done">Imported %1$d of %2$d songs</string>

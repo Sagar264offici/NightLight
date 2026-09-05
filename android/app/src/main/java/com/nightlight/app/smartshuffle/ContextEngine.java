@@ -43,9 +43,6 @@ public final class ContextEngine {
         }
     }
 
-    private static final String[] MOOD_EMOJI = {
-            "❤️", "🌧", "🌙", "☀️", "⚡", "🏋", "🎉", "🧠"
-    };
     private static final String[] MOOD_LABELS = {
             "Love", "Sad", "Chill", "Happy", "Energy", "Workout", "Party", "Focus"
     };
@@ -58,11 +55,11 @@ public final class ContextEngine {
     private ContextEngine() {
     }
 
-    /** The mood chips shown on Home. Returns [emoji, label, key] rows. */
+    /** The mood chips shown on Home. Returns [label, label, key] rows. */
     public static String[][] moodChips() {
         String[][] chips = new String[MOOD_KEYS.length][];
         for (int i = 0; i < MOOD_KEYS.length; i++) {
-            chips[i] = new String[]{MOOD_EMOJI[i], MOOD_LABELS[i], MOOD_KEYS[i]};
+            chips[i] = new String[]{MOOD_LABELS[i], MOOD_LABELS[i], MOOD_KEYS[i]};
         }
         return chips;
     }
@@ -109,38 +106,38 @@ public final class ContextEngine {
     private static String titleFor(TimeOfDay t, WeatherDtos.WeatherDto w, String explicitMood) {
         if (explicitMood != null) {
             String label = labelForKey(explicitMood);
-            return emojiForKey(explicitMood) + " " + label + " — songs for your mood";
+            return label + " — songs for your mood";
         }
         String cond = w != null ? w.condition : "UNKNOWN";
         boolean night = t == TimeOfDay.NIGHT || t == TimeOfDay.LATE_NIGHT;
         if ("RAIN".equals(cond) || "HEAVY_RAIN".equals(cond) || "THUNDERSTORM".equals(cond)) {
-            return night ? "🌧 Rainy night — soft songs for tonight" : "🌧 Rainy — calm songs";
+            return night ? "Rainy night — soft songs for tonight" : "Rainy — calm songs";
         }
         if ("SNOW".equals(cond) || "COLD".equals(cond)) {
-            return "❄️ Cold — cozy sounds";
+            return "Cold — cozy sounds";
         }
         if ("SUNNY".equals(cond) || "HOT".equals(cond)) {
             if (t == TimeOfDay.EARLY_MORNING || t == TimeOfDay.MORNING) {
-                return "☀️ Sunny morning — start your day";
+                return "Sunny morning — start your day";
             }
-            return "☀️ Sunny — feel-good songs";
+            return "Sunny — feel-good songs";
         }
         if ("FOG".equals(cond) || "CLOUDY".equals(cond) || "PARTLY_CLOUDY".equals(cond)) {
-            return night ? "🌙 Quiet night — ambient moods" : "🌥 Overcast — mellow picks";
+            return night ? "Quiet night — ambient moods" : "Overcast — mellow picks";
         }
         switch (t) {
             case EARLY_MORNING:
-                return "🌅 Early morning — soft start";
+                return "Early morning — soft start";
             case MORNING:
-                return "🌅 Morning — fresh picks";
+                return "Morning — fresh picks";
             case AFTERNOON:
-                return "☀️ Afternoon — keep it going";
+                return "Afternoon — keep it going";
             case EVENING:
-                return "🌆 Evening — wind down";
+                return "Evening — wind down";
             case NIGHT:
-                return "🌙 Night — unwind";
+                return "Night — unwind";
             case LATE_NIGHT:
-                return "🌙 Late night — deep calm";
+                return "Late night — deep calm";
         }
         return "For you right now";
     }
@@ -197,15 +194,6 @@ public final class ContextEngine {
             hints.add(ListeningContext.CHILL);
             hints.add(ListeningContext.FOCUS);
         }
-    }
-
-    private static String emojiForKey(String key) {
-        for (int i = 0; i < MOOD_KEYS.length; i++) {
-            if (MOOD_KEYS[i].equals(key)) {
-                return MOOD_EMOJI[i];
-            }
-        }
-        return "🎵";
     }
 
     private static String labelForKey(String key) {

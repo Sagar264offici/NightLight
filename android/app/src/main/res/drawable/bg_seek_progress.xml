@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thin luminous seek bar. The SeekBar hosts a ~36dp touch target while the
+     drawable insets keep the visible track ~4dp tall. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@android:id/background"
+        android:top="16dp"
+        android:bottom="16dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="2dp" />
+            <solid android:color="#33FFFFFF" />
+        </shape>
+    </item>
+
+    <item
+        android:id="@android:id/secondaryProgress"
+        android:top="16dp"
+        android:bottom="16dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="2dp" />
+            <solid android:color="#22FFFFFF" />
+        </shape>
+    </item>
+
+    <item
+        android:id="@android:id/progress"
+        android:top="16dp"
+        android:bottom="16dp">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="2dp" />
+                <gradient
+                    android:angle="0"
+                    android:startColor="#F4D98F"
+                    android:centerColor="#E9C46A"
+                    android:endColor="#F2E6C0" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>

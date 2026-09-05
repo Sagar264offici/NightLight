@@ -29,6 +29,7 @@ public class HomeViewModel extends AndroidViewModel {
     private final PlaylistRepository playlists;
     private final MusicRepository music;
 
+    private final androidx.lifecycle.LiveData<List<Track>> recentLiveData;
     private final MutableLiveData<WeatherDtos.WeatherDto> weather = new MutableLiveData<>();
     private final MutableLiveData<List<Track>> trendingSongs = new MutableLiveData<>();
     private final MutableLiveData<String> chartTitle = new MutableLiveData<>("");
@@ -39,6 +40,14 @@ public class HomeViewModel extends AndroidViewModel {
     private long lastWeatherAt;
     private long lastTrendingAt;
     private boolean refreshing;
+    private final androidx.lifecycle.Observer<List<Track>> recentsSeedObserver = tracks -> {
+        // Once Room emits recents, seed the "For you" row (recents may not be
+        // available the moment refreshContext() first runs).
+        List<Track> forYou = forYouTracks.getValue();
+        if (forYou == null || forYou.isEmpty()) {
+            seedForYou();
+        }
+    };
 
     public HomeViewModel(@NonNull Application application) {
         super(application);
@@ -46,11 +55,19 @@ public class HomeViewModel extends AndroidViewModel {
         this.library = app.getLibraryRepository();
         this.playlists = app.getPlaylistRepository();
         this.music = app.getMusicRepository();
+        this.recentLiveData = library.observeRecent();
         publishContext();
+        recentLiveData.observeForever(recentsSeedObserver);
+    }
+
+    @Override
+    protected void onCleared() {
+        recentLiveData.removeObserver(recentsSeedObserver);
+        super.onCleared();
     }
 
     public LiveData<List<Track>> getRecent() {
-        return library.observeRecent();
+        return recentLiveData;
     }
 
     public LiveData<List<Track>> getLikes() {
@@ -144,9 +161,16 @@ public class HomeViewModel extends AndroidViewModel {
         }
     }
 
+    private boolean seedingForYou;
+
     /** Seeds the "For you" row from a track the user actually listens to. */
     private void seedForYou() {
-        List<Track> recent = library.observeRecent().getValue();
+        List<Track> existing = forYouTracks.getValue();
+        if ((existing != null && !existing.isEmpty()) || seedingForYou) {
+            return;
+        }
+        seedingForYou = true;
+        List<Track> recent = recentLiveData.getValue();
         Track seed = null;
         if (recent != null && !recent.isEmpty()) {
             seed = recent.get(0);
@@ -158,11 +182,13 @@ public class HomeViewModel extends AndroidViewModel {
             }
         }
         if (seed == null) {
+            seedingForYou = false; // allow a later retry once data arrives
             return;
         }
         music.fetchRadio(seed, 15, new MusicRepository.SearchCallback() {
             @Override
             public void onSuccess(List<Track> tracks, int total, int page) {
+                seedingForYou = false;
                 if (tracks != null && !tracks.isEmpty()) {
                     forYouTracks.postValue(tracks);
                 }
@@ -170,6 +196,7 @@ public class HomeViewModel extends AndroidViewModel {
 
             @Override
             public void onFailure(Throwable error) {
+                seedingForYou = false;
                 // Row stays hidden; Home is still fully functional.
             }
         });

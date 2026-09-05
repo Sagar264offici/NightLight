@@ -43,6 +43,18 @@ export class App {
     })
 
     this.app.route('/', Home)
+
+    // NightLight branding: serve a local favicon instead of the upstream one.
+    // The icon lives next to the compiled dist output, so it resolves whether
+    // the server runs from src/ or dist/.
+    this.app.get('/favicon.ico', async (ctx) => {
+      const here = new URL('.', import.meta.url).pathname
+      const { readFile } = await import('node:fs/promises')
+      const icon = await readFile(new URL('favicon.png', import.meta.url))
+      return new Response(icon, {
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }
+      })
+    })
   }
 
   private initializeGlobalMiddlewares() {

@@ -1,81 +1,166 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Premium lyrics: artwork atmosphere, compact header, comfortable reading. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/lyrics_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/nightlight_navy_deep"
-    android:orientation="vertical">
+    android:background="@drawable/bg_now_playing">
 
-    <!-- Top bar -->
+    <!-- Faint artwork atmosphere -->
+    <ImageView
+        android:id="@+id/lyrics_backdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.30"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_scrim_art" />
+
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="16dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <ImageButton
-            android:id="@+id/lyrics_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_back"
-            android:src="@drawable/ic_arrow_back"
-            app:tint="@color/nightlight_cream" />
-
+        <!-- Header -->
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_width="match_parent"
+            android:layout_height="68dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="16dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:letterSpacing="0.25"
-                android:text="@string/lyrics_title"
-                android:textColor="@color/nightlight_cream_dim"
-                android:textSize="13sp" />
+            <ImageButton
+                android:id="@+id/lyrics_back"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/action_back"
+                android:src="@drawable/ic_arrow_back"
+                app:tint="@color/nightlight_cream" />
 
-            <TextView
-                android:id="@+id/lyrics_song"
-                android:layout_width="wrap_content"
+            <ImageView
+                android:id="@+id/lyrics_art"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/bg_artwork_placeholder_round"
+                android:contentDescription="@string/artwork_desc"
+                android:scaleType="centerCrop" />
+
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/nightlight_cream"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_lyrics_sing"
+                        app:tint="@color/nightlight_cyan" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:letterSpacing="0.35"
+                        android:text="@string/lyrics_title"
+                        android:textAllCaps="true"
+                        android:textColor="@color/nightlight_cyan"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/lyrics_song"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/nightlight_ivory"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
+
+        <!-- Lyrics body -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/lyrics_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:overScrollMode="never"
+                android:scrollbars="none" />
+
+            <!-- Loading + state -->
+            <LinearLayout
+                android:id="@+id/lyrics_state_box"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:id="@+id/lyrics_progress"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:indeterminateTint="@color/nightlight_cyan"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/lyrics_state"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:lineSpacingExtra="4dp"
+                    android:paddingTop="18dp"
+                    android:paddingStart="32dp"
+                    android:paddingEnd="32dp"
+                    android:textColor="@color/nightlight_cream_dim"
+                    android:textSize="16sp" />
+            </LinearLayout>
+        </FrameLayout>
     </LinearLayout>
 
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/lyrics_list"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingTop="120dp"
-            android:paddingBottom="160dp"
-            android:scrollbars="none" />
-
-        <TextView
-            android:id="@+id/lyrics_state"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:gravity="center"
-            android:lineSpacingExtra="4dp"
-            android:padding="28dp"
-            android:textColor="@color/nightlight_cream_dim"
-            android:textSize="16sp"
-            android:visibility="gone" />
-    </FrameLayout>
-</LinearLayout>
+    <!-- Resume current line (appears while the user is scrolling) -->
+    <TextView
+        android:id="@+id/lyrics_resume"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="26dp"
+        android:background="@drawable/bg_mood_chip_selected"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:letterSpacing="0.05"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:text="@string/lyrics_resume_current"
+        android:textColor="@color/nightlight_ivory"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+</FrameLayout>

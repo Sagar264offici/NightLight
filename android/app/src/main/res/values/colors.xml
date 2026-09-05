@@ -3,16 +3,34 @@
     <!-- Midnight navy / night sky -->
     <color name="nightlight_ambient_a">#232C57</color>
     <color name="nightlight_ambient_b">#121A3B</color>
-    <color name="nightlight_navy_deep">#0A0D16</color>
+    <color name="nightlight_navy_deep">#070A16</color>
     <color name="nightlight_navy">#10142B</color>
     <color name="nightlight_navy_soft">#1A2140</color>
     <color name="nightlight_navy_card">#151B38</color>
 
+    <!-- NightLight electric spectrum: deep midnight -> electric blue -> luminous cyan -->
+    <color name="nightlight_midnight">#05070F</color>
+    <color name="nightlight_blue_deep">#101B45</color>
+    <color name="nightlight_blue">#5B8DEF</color>
+    <color name="nightlight_blue_glow">#3D6FE0</color>
+    <color name="nightlight_cyan">#5FDDE8</color>
+    <color name="nightlight_cyan_dim">#2FA8B8</color>
+    <color name="nightlight_indigo">#6C6BE8</color>
+    <color name="nightlight_violet">#8A6FF0</color>
+
     <!-- Moonlight cream / warm gold -->
-    <color name="nightlight_cream">#F3EAD6</color>
-    <color name="nightlight_cream_dim">#C9C0AC</color>
+    <color name="nightlight_cream">#F7F0E2</color>
+    <color name="nightlight_cream_dim">#B9B4C8</color>
     <color name="nightlight_gold">#E9C46A</color>
     <color name="nightlight_gold_dim">#B9954A</color>
+    <color name="nightlight_ivory">#FFF9EC</color>
+
+    <!-- Translucent glass helpers -->
+    <color name="glass_panel">#E60B1128</color>
+    <color name="glass_panel_soft">#66121B3D</color>
+    <color name="glass_stroke">#26FFFFFF</color>
+    <color name="glass_highlight">#2EFFFFFF</color>
+    <color name="scrim_bottom">#CC05070F</color>
 
     <!-- Stars / supporting -->
     <color name="nightlight_star">#AEB8D8</color>

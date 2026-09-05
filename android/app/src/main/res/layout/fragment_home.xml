@@ -4,7 +4,7 @@
     android:id="@+id/home_scroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/nightlight_navy_deep"
+    android:background="@drawable/bg_home_cinematic"
     android:fillViewport="true"
     android:scrollbars="none">
 

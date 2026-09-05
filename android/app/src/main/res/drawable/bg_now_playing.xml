@@ -1,10 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ambient night-sky gradient behind the Now Playing screen. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <gradient
-        android:angle="270"
-        android:startColor="@color/nightlight_ambient_a"
-        android:centerColor="@color/nightlight_ambient_b"
-        android:endColor="@color/nightlight_navy_deep" />
-</shape>
+<!-- Cinematic NightLight backdrop: deep midnight fading up through navy
+     into a soft atmospheric blue glow at the top. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Base vertical sweep: ambient blue -> midnight -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="#1B2758"
+                android:centerColor="#0E1636"
+                android:endColor="#060812" />
+        </shape>
+    </item>
+    <!-- Upper atmosphere: luminous glow that dies before mid-screen -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="#663D6FE0"
+                android:centerColor="#1A3D6FE0"
+                android:endColor="#003D6FE0" />
+        </shape>
+    </item>
+    <!-- Soft cool vignette from the edges -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="0"
+                android:startColor="#40070A16"
+                android:centerColor="#00070A16"
+                android:endColor="#40070A16" />
+        </shape>
+    </item>
+</layer-list>

@@ -336,9 +336,7 @@ public final class PlaybackManager {
         String mode = ShufflePrefs.cycle(app);
         applyShuffleMode(mode);
         return mode;
-    }
-
-    /** Applies a stored shuffle preference (used on startup / settings change). */
+    }    /** Applies a stored shuffle preference (used on startup / settings change). */
     public void applyShuffleMode(String mode) {
         if (controller == null) {
             return;
@@ -347,17 +345,56 @@ public final class PlaybackManager {
             controller.setShuffleModeEnabled(true);
         } else {
             controller.setShuffleModeEnabled(false);
-            if (ShufflePrefs.SMART.equals(mode)
-                    && !com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
-                // Shuffling the same short list keeps repeating the same songs:
-                // top the queue up with fresh related picks before mixing.
-                Track seed = currentTrack();
-                if (seed != null && controller.getMediaItemCount() > 0) {
-                    fetchRadio(seed, 24, true);
+            if (ShufflePrefs.SMART.equals(mode)) {
+                // Respond instantly: reshuffle the tracks already in the queue
+                // so the toggle visibly reorders music right away. The radio
+                // top-up is fetched in the background and mixed in when ready.
+                shuffleCurrentQueue();
+                if (!com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
+                    Track seed = currentTrack();
+                    if (seed != null && controller.getMediaItemCount() > 0) {
+                        fetchRadio(seed, 24, true);
+                    }
                 }
             }
         }
+
         publish(true);
+    }
+
+    /**
+     * Randomly reorders the queued tracks without interrupting playback: the
+     * whole queue is rebuilt in shuffled order and the playing position is
+     * restored, so audio never skips or restarts.
+     */
+    private void shuffleCurrentQueue() {
+        if (controller == null || controller.getMediaItemCount() < 2) {
+            return;
+        }
+        int current = controller.getCurrentMediaItemIndex();
+        long position = controller.getCurrentPosition();
+        boolean playing = controller.isPlaying();
+        List<androidx.media3.common.MediaItem> items = new ArrayList<>();
+        for (int i = 0; i < controller.getMediaItemCount(); i++) {
+            items.add(controller.getMediaItemAt(i));
+        }
+        List<Integer> order = new java.util.ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            order.add(i);
+        }
+        java.util.Collections.shuffle(order);
+        List<androidx.media3.common.MediaItem> shuffled = new ArrayList<>();
+        int newCurrent = 0;
+        for (int i = 0; i < order.size(); i++) {
+            shuffled.add(items.get(order.get(i)));
+            if (order.get(i) == current) {
+                newCurrent = i;
+            }
+        }
+        controller.setMediaItems(shuffled, newCurrent, position);
+        if (playing) {
+            controller.play();
+        }
     }
 
     // ---- Radio ----

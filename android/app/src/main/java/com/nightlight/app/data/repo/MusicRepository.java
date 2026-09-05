@@ -65,6 +65,14 @@ public final class MusicRepository {
     /** One in-flight song-detail fetch per id-list signature. */
     private final ConcurrentHashMap<String, List<TracksCallback>> pending = new ConcurrentHashMap<>();
 
+    /** Short-lived radio batch cache (key = seed id) so toggling smart
+     * shuffle again doesn't re-fetch the same related tracks. */
+    private static final long RADIO_CACHE_TTL_MS = 30_000L;
+    private String cachedRadioSeed;
+    private List<Track> cachedRadioTracks;
+    private long cachedRadioAt;
+    private final AtomicBoolean radioCacheLock = new AtomicBoolean();
+
     public MusicRepository(Context context) {
         this.app = context.getApplicationContext();
         this.api = ApiClient.musicApi(app);
@@ -108,6 +116,16 @@ public final class MusicRepository {
             AppExecutors.onMain(() -> callback.onFailure(new IllegalStateException("No seed track")));
             return;
         }
+        // Serve repeat radio requests (e.g. re-toggling smart shuffle) from
+        // the short-lived cache while the network answer is still fresh.
+        if (seed.id.equals(cachedRadioSeed)
+                && cachedRadioTracks != null
+                && !cachedRadioTracks.isEmpty()
+                && System.currentTimeMillis() - cachedRadioAt < RADIO_CACHE_TTL_MS) {
+            List<Track> hit = new ArrayList<>(cachedRadioTracks);
+            AppExecutors.onMain(() -> callback.onSuccess(hit, hit.size(), 0));
+            return;
+        }
         api.getRadio(seed.id, seed.name, seed.artists, seed.album, limit)
                 .enqueue(new Callback<ApiResponse<SongDtos.SearchSongsDto>>() {
                     @Override
@@ -125,6 +143,12 @@ public final class MusicRepository {
                                     tracks.add(Track.fromSong(song));
                                 }
                             }
+                        }
+                        if (radioCacheLock.compareAndSet(false, true)) {
+                            cachedRadioSeed = seed.id;
+                            cachedRadioTracks = tracks;
+                            cachedRadioAt = System.currentTimeMillis();
+                            radioCacheLock.set(false);
                         }
                         callback.onSuccess(tracks, body.data.total, 0);
                     }

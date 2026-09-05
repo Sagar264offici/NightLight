@@ -182,7 +182,7 @@ public final class HomeFragment extends Fragment {
         for (String[] chip : chips) {
             final String moodKey = chip[2];
             TextView chipView = new TextView(requireContext());
-            chipView.setText(chip[0] + "  " + chip[1]);
+            chipView.setText(chip[1]);
             chipView.setTextSize(13f);
             chipView.setTextColor(requireContext().getColor(R.color.nightlight_cream));
             chipView.setBackgroundResource(moodKey.equals(active)

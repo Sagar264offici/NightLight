@@ -1,14 +1,13 @@
 package com.nightlight.app.ui;
 
-import android.graphics.Color;
 import android.os.Bundle;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ImageView;
-import android.widget.Toast;
+import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
@@ -35,6 +34,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
     private NowPlayingViewModel viewModel;
 
     private ImageView artwork;
+    private ImageView backdrop;
     private TextView title;
     private TextView artist;
     private SeekBar seekBar;
@@ -43,13 +43,14 @@ public final class NowPlayingActivity extends AppCompatActivity {
     private ImageButton playPause;
     private ImageButton shuffle;
     private ImageButton repeat;
-    private ImageButton like;
+    private ImageButton likeIcon;
     private View artworkStage;
     private View artworkRing;
 
     private boolean userDraggingSeek;
     private boolean artworkSized;
     private int artworkPx = 900;
+    private String loadedArtworkId;
     private android.animation.ObjectAnimator ringAnimator;
 
     @Override
@@ -60,10 +61,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
 
         com.nightlight.app.util.InsetsUtil.applySystemBars(findViewById(R.id.now_playing_root));
 
-        NightLightApp app = (NightLightApp) getApplication();
         viewModel = new androidx.lifecycle.ViewModelProvider(this).get(NowPlayingViewModel.class);
 
         artwork = findViewById(R.id.np_artwork);
+        backdrop = findViewById(R.id.np_backdrop);
         artworkStage = findViewById(R.id.np_artwork_stage);
         artworkRing = findViewById(R.id.np_artwork_ring);
         artworkStage.post(this::ensureArtworkSize);
@@ -75,13 +76,20 @@ public final class NowPlayingActivity extends AppCompatActivity {
         playPause = findViewById(R.id.np_play_pause);
         shuffle = findViewById(R.id.np_shuffle);
         repeat = findViewById(R.id.np_repeat);
-        like = findViewById(R.id.np_like);
+        likeIcon = findViewById(R.id.np_like_icon);
+        ImageButton queueIcon = findViewById(R.id.np_queue_icon);
+        View lyricsBox = findViewById(R.id.np_lyrics);
 
         findViewById(R.id.np_back).setOnClickListener(v -> finish());
-        findViewById(R.id.np_lyrics).setOnClickListener(v ->
+        lyricsBox.setOnClickListener(v ->
                 startActivity(new android.content.Intent(this, LyricsActivity.class)));
         findViewById(R.id.np_share).setOnClickListener(v -> shareListenSession());
-        playPause.setOnClickListener(v -> viewModel.togglePlayPause());
+        playPause.setOnClickListener(v -> {
+            viewModel.togglePlayPause();
+            playPause.animate().scaleX(0.88f).scaleY(0.88f).setDuration(80)
+                    .withEndAction(() -> playPause.animate().scaleX(1f).scaleY(1f).setDuration(140).start())
+                    .start();
+        });
         findViewById(R.id.np_next).setOnClickListener(v -> viewModel.next());
         findViewById(R.id.np_previous).setOnClickListener(v -> viewModel.previous());
         shuffle.setOnClickListener(v -> {
@@ -94,10 +102,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
         });
         repeat.setOnClickListener(v -> {
             int mode = viewModel.cycleRepeat();
-            app.getLibraryRepository().setRepeatPref(mode);
+            ((NightLightApp) getApplication()).getLibraryRepository().setRepeatPref(mode);
             renderRepeat(mode);
         });
-        like.setOnClickListener(v -> {
+        findViewById(R.id.np_like).setOnClickListener(v -> {
             PlaybackSnapshot s = viewModel.getSnapshot().getValue();
             if (s != null && s.current != null) {
                 viewModel.toggleLike(s.current);
@@ -109,8 +117,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
             @Override
             public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 if (fromUser) {
-                    long duration = viewModel.getSnapshot().getValue() != null
-                            ? viewModel.getSnapshot().getValue().duration : 0L;
+                    PlaybackSnapshot snap = viewModel.getSnapshot().getValue();
+                    long duration = snap != null ? snap.duration : 0L;
                     long pos = duration * progress / 1000L;
                     positionText.setText(Track.formatDuration(pos));
                 }
@@ -124,8 +132,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
             @Override
             public void onStopTrackingTouch(SeekBar bar) {
                 userDraggingSeek = false;
-                long duration = viewModel.getSnapshot().getValue() != null
-                        ? viewModel.getSnapshot().getValue().duration : 0L;
+                PlaybackSnapshot snap = viewModel.getSnapshot().getValue();
+                long duration = snap != null ? snap.duration : 0L;
                 viewModel.seekTo(duration * bar.getProgress() / 1000L);
             }
         });
@@ -162,6 +170,11 @@ public final class NowPlayingActivity extends AppCompatActivity {
         ensureArtworkSize();
         applyPowerMode(s.isPlaying);
         if (track.imageUrl != null && !track.imageUrl.isEmpty()) {
+            if (!track.id.equals(loadedArtworkId)) {
+                loadedArtworkId = track.id;
+                artwork.setAlpha(0f);
+                backdrop.setAlpha(0f);
+            }
             int corner = Math.round(22f * getResources().getDisplayMetrics().density);
             Glide.with(this)
                     .load(track.imageUrl)
@@ -170,6 +183,13 @@ public final class NowPlayingActivity extends AppCompatActivity {
                     .override(artworkPx, artworkPx)
                     .transform(new com.bumptech.glide.load.resource.bitmap.RoundedCorners(corner))
                     .into(artwork);
+            Glide.with(this)
+                    .load(track.imageUrl)
+                    .override(720, 720)
+                    .centerCrop()
+                    .into(backdrop);
+            artwork.animate().alpha(1f).setDuration(400).start();
+            backdrop.animate().alpha(1f).setDuration(900).start();
         }
 
         playPause.setImageResource(s.isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
@@ -188,8 +208,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
     }
 
     /**
-     * Shuffle button states: OFF dim, NORMAL gold (plain random), SMART gold
-     * with the smart-shuffle glyph — Smart is the default and stays on top.
+     * Shuffle states: OFF dim, NORMAL gold, SMART gold with the smart glyph.
      */
     private void renderShuffleMode(String mode) {
         boolean smart = "smart".equals(mode);
@@ -200,9 +219,9 @@ public final class NowPlayingActivity extends AppCompatActivity {
     }
 
     /**
-     * Tunes visuals to the power mode: Low uses small artwork and no motion,
-     * Balanced the default look, High bigger artwork plus a slow breathing
-     * glow on the gold ring while music plays.
+     * Tunes visuals to the experience mode: Low = quieter atmosphere, Balanced
+     * the default cinematic look, High adds a slow breathing glow while music
+     * plays.
      */
     private void applyPowerMode(boolean playing) {
         String mode = com.nightlight.app.util.PowerModes.get(this);
@@ -212,6 +231,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
             artworkSized = false;
             ensureArtworkSize();
         }
+        backdrop.setAlpha("low".equals(mode) ? 0.30f : 0.52f);
         boolean wantGlow = playing && "high".equals(mode);
         if (wantGlow == (ringAnimator != null && ringAnimator.isStarted())) {
             return;
@@ -221,7 +241,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
             ringAnimator = null;
         }
         if (wantGlow) {
-            ringAnimator = android.animation.ObjectAnimator.ofFloat(artworkRing, "alpha", 0.35f, 1f);
+            ringAnimator = android.animation.ObjectAnimator.ofFloat(artworkRing, "alpha", 0.4f, 1f);
             ringAnimator.setDuration(1800);
             ringAnimator.setRepeatMode(android.animation.ValueAnimator.REVERSE);
             ringAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
@@ -241,7 +261,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
             return;
         }
         artworkSized = true;
-        int ringPad = Math.round(5f * getResources().getDisplayMetrics().density);
+        int ringPad = Math.round(6f * getResources().getDisplayMetrics().density);
         android.view.ViewGroup.LayoutParams ringLp = artworkRing.getLayoutParams();
         ringLp.width = side + ringPad;
         ringLp.height = side + ringPad;
@@ -264,14 +284,13 @@ public final class NowPlayingActivity extends AppCompatActivity {
             return;
         }
         boolean liked = likedIds.contains(s.current.id);
-        like.setImageResource(liked ? R.drawable.ic_favorite : R.drawable.ic_favorite_border);
-        like.setColorFilter(ContextCompat.getColor(this,
-                liked ? R.color.nightlight_gold : R.color.nightlight_gold_dim));
+        likeIcon.setImageResource(liked ? R.drawable.ic_favorite : R.drawable.ic_favorite_border);
+        likeIcon.setColorFilter(ContextCompat.getColor(this,
+                liked ? R.color.nightlight_gold : R.color.nightlight_cream_dim));
     }
 
     private void shareListenSession() {
         if (com.nightlight.app.player.ListenTogether.get().isActive()) {
-            // Already hosting/joined: re-share the current code.
             com.nightlight.app.player.ListenTogether.shareCode(this,
                     com.nightlight.app.player.ListenTogether.get().activeCode());
             return;
@@ -298,14 +317,14 @@ public final class NowPlayingActivity extends AppCompatActivity {
         int currentIndex = s != null ? s.currentIndex : 0;
 
         BottomSheetDialog sheet = new BottomSheetDialog(this);
-        View view = LayoutInflater.from(this).inflate(R.layout.dialog_add_to_playlist, null);
+        View view = getLayoutInflater().inflate(R.layout.dialog_add_to_playlist, null);
         TextView header = view.findViewById(R.id.add_to_playlist_new);
         header.setText(R.string.action_queue);
         header.setOnClickListener(v -> {
             playback.clearQueue();
             sheet.dismiss();
         });
-        view.findViewById(R.id.add_to_playlist_list).setBackgroundColor(Color.TRANSPARENT);
+        view.findViewById(R.id.add_to_playlist_list).setBackgroundColor(android.graphics.Color.TRANSPARENT);
 
         QueueAdapter adapter = new QueueAdapter(new QueueAdapter.Callbacks() {
             @Override

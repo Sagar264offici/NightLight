@@ -4,7 +4,7 @@
     android:id="@+id/mini_player_root"
     android:layout_width="match_parent"
     android:layout_height="@dimen/mini_player_height"
-    android:background="@color/nightlight_navy"
+    android:background="@drawable/bg_mini_player"
     android:clickable="true"
     android:focusable="true"
     android:orientation="horizontal"
