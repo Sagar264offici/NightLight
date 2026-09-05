@@ -59,9 +59,12 @@ export async function connectMongo(): Promise<Db> {
   }
 
   client = new MongoClient(uri, {
-    serverSelectionTimeoutMS: 5000,
-    connectTimeoutMS: 5000,
-    maxPoolSize: 20
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    maxPoolSize: 20,
+    // Stable API is supported by the installed driver (mongodb ^7) and by
+    // MongoDB Atlas, keeping the deployed runtime predictable.
+    serverApi: { version: '1' }
   })
 
   await client.connect()

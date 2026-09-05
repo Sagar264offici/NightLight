@@ -4,6 +4,9 @@
   "description": "Unofficial JioSaavn API",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": "22.x"
+  },
   "repository": "https://github.com/sumitkolhe/jiosaavn-api",
   "author": "Sumit Kolhe",
   "main": "dist/server.js",
@@ -28,9 +31,9 @@
   },
   "scripts": {
     "dev": "bun run --hot src/server.ts",
-    "start": "bun dist/local.js",
+    "start": "node dist/local.js",
     "prebuild": "rm -rf dist",
-    "build": "tsc && tsc-alias",
+    "build": "tsc && tsc-alias && cp src/favicon.png dist/favicon.png",
     "format": "prettier --write \"./**/*.{js,ts,json}\"",
     "lint": "eslint .",
     "lint:fix": "bun run lint --fix",
