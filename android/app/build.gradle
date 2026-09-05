@@ -48,8 +48,8 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             // Production deployments must point at a real HTTPS host via
-            // -PnightlightApiUrl=https://api.nightlight.example/api/
-            def prodUrl = project.hasProperty('nightlightApiUrl') ? nightlightApiUrl : 'https://api.nightlight.app/api/'
+            // -PnightlightApiUrl=https://nightlight-api.onrender.com/api/
+            def prodUrl = project.hasProperty('nightlightApiUrl') ? nightlightApiUrl : 'https://nightlight-api.onrender.com/api/'
             buildConfigField 'String', 'API_BASE_URL', "\"${prodUrl}\""
         }
     }
