@@ -28,7 +28,7 @@
   },
   "scripts": {
     "dev": "bun run --hot src/server.ts",
-    "start": "bun dist/server.js",
+    "start": "bun dist/local.js",
     "prebuild": "rm -rf dist",
     "build": "tsc && tsc-alias",
     "format": "prettier --write \"./**/*.{js,ts,json}\"",
