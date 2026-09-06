@@ -171,7 +171,7 @@ public class HomeViewModel extends AndroidViewModel {
     public void refreshForYou() {
         List<Track> recent = recentLiveData.getValue();
         List<Track> trending = trendingSongs.getValue();
-        String mood = com.nightlight.app.util.MoodPrefs.active(getApplication());
+        String mood = com.nightlight.app.util.AccountPrefs.effectiveMood(getApplication());
         Track seed = pickMoodSeed(recent, trending, mood);
         if (seed == null) {
             seed = pickMoodSeed(trending, trending, mood);

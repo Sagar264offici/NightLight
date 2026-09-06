@@ -208,6 +208,42 @@ public final class PlaylistRepository {
 
     // ---- Tracks ----
 
+    /** Callback for async track loads; invoked on the main thread. */
+    public interface TracksCallback {
+        void onTracks(List<Track> tracks);
+    }
+
+    /** Async check for device-only (never-synced) playlists; main thread. */
+    public interface BooleanCallback {
+        void onResult(boolean value);
+    }
+
+    /** True when this device holds local-only playlists (guest-created etc.). */
+    public void hasLocalPlaylists(BooleanCallback callback) {
+        AppExecutors.get().io().execute(() -> {
+            boolean found = false;
+            for (PlaylistEntity p : db.playlistDao().getPlaylists()) {
+                if (p.synced == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            boolean result = found;
+            AppExecutors.onMain(() -> callback.onResult(result));
+        });
+    }
+
+    /**
+     * Room forbids main-thread DB access, so Play buttons must load tracks
+     * through this instead of the blocking {@link #getTracks(String)}.
+     */
+    public void getTracksAsync(String playlistId, TracksCallback callback) {
+        AppExecutors.get().io().execute(() -> {
+            List<Track> tracks = getTracks(playlistId);
+            AppExecutors.onMain(() -> callback.onTracks(tracks));
+        });
+    }
+
     public List<Track> getTracks(String playlistId) {
         List<PlaylistTrackEntity> entities = db.playlistDao().getTracks(playlistId);
         List<Track> tracks = new ArrayList<>();
@@ -404,10 +440,13 @@ public final class PlaylistRepository {
                                     dto.trackCount, parseTime(dto.createdAt), parseTime(dto.updatedAt)));
                         }
                     }
-                    // Push local-only playlists (offline-created).
-                    for (PlaylistEntity local : db.playlistDao().getPlaylists()) {
-                        if (local.synced == 0) {
-                            pushLocalPlaylist(local);
+                    // Push local-only playlists (offline-created), unless the
+                    // user explicitly declined the guest-conversion offer.
+                    if (!com.nightlight.app.util.AccountPrefs.skipLocalPlaylistPush(app)) {
+                        for (PlaylistEntity local : db.playlistDao().getPlaylists()) {
+                            if (local.synced == 0) {
+                                pushLocalPlaylist(local);
+                            }
                         }
                     }
                 });

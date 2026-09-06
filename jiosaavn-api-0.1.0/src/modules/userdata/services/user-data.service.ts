@@ -78,7 +78,12 @@ export class UserDataService {
   async createPlaylist(userId: string, name: string, description: string, artworkUrl: string) {
     const trimmedName = name.trim().slice(0, 100)
     if (!trimmedName) throw ApiError.badRequest('Playlist name must not be empty', 'EMPTY_NAME')
-    const doc = await this.repository.createPlaylist(userId, trimmedName, description.slice(0, 500), artworkUrl.slice(0, 2048))
+    const doc = await this.repository.createPlaylist(
+      userId,
+      trimmedName,
+      description.slice(0, 500),
+      artworkUrl.slice(0, 2048)
+    )
     return { playlist: serializePlaylist(doc) }
   }
 

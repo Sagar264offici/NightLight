@@ -31,7 +31,10 @@ function canonicalTitle(raw: unknown): string {
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/[-–—:;./_+]/g, ' ')
-    .replace(/\b(feat|ft|from|official|lyrics|video|version|edit|extended|remix|acoustic|live|slowed|sped up|cover|instrumental|karaoke|reprise)\b.*$/g, ' ')
+    .replace(
+      /\b(feat|ft|from|official|lyrics|video|version|edit|extended|remix|acoustic|live|slowed|sped up|cover|instrumental|karaoke|reprise)\b.*$/g,
+      ' '
+    )
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -53,8 +56,18 @@ function hasToken(hay: string, token: string): boolean {
 
 /** Derivative/version patterns that make a candidate unfit for radio. */
 const BAD_VERSION_TOKENS = [
-  '8 bit', '16 bit', '8bit', '16bit', 'karaoke', 'tribute',
-  'instrumental', 'emulation', 'sped up', 'slowed', 'nightcore', 'lullaby'
+  '8 bit',
+  '16 bit',
+  '8bit',
+  '16bit',
+  'karaoke',
+  'tribute',
+  'instrumental',
+  'emulation',
+  'sped up',
+  'slowed',
+  'nightcore',
+  'lullaby'
 ]
 /** "X Version" styles that are derivative re-recordings (piano/ambient/rain/...). */
 const DERIVATIVE_VERSION_ADJ = ['piano', 'ambient', 'orchestral', 'rain', 'sleep', 'sad', 'lofi', 'lo fi']
@@ -158,11 +171,17 @@ export class SearchService {
     const artistNames = (s: SongResult): string => {
       const prim = s.artists?.primary
       if (Array.isArray(prim) && prim.length) {
-        return prim.map((a) => a?.name).filter(Boolean).join(', ')
+        return prim
+          .map((a) => a?.name)
+          .filter(Boolean)
+          .join(', ')
       }
       const all = s.artists?.all
       if (Array.isArray(all) && all.length) {
-        return all.map((a) => a?.name).filter(Boolean).join(', ')
+        return all
+          .map((a) => a?.name)
+          .filter(Boolean)
+          .join(', ')
       }
       return ''
     }

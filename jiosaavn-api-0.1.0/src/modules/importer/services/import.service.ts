@@ -1,5 +1,5 @@
-import { SearchSongsUseCase } from '#modules/search/use-cases'
 import { GetPlaylistByLinkUseCase } from '#modules/playlists/use-cases/get-playlist-by-link'
+import { SearchSongsUseCase } from '#modules/search/use-cases'
 
 interface PlaylistTrack {
   title: string
@@ -25,7 +25,10 @@ export class ImportService {
 
   async importPlaylist(rawUrl: string, limit = 60): Promise<ImportedPlaylist> {
     const url = new URL(rawUrl)
-    const host = url.hostname.replace(/^www\./, '').replace(/^music\./, '').toLowerCase()
+    const host = url.hostname
+      .replace(/^www\./, '')
+      .replace(/^music\./, '')
+      .toLowerCase()
     const wanted = Math.min(Math.max(limit, 1), 100)
 
     let items: PlaylistTrack[] = []
@@ -105,7 +108,26 @@ export class ImportService {
     if (!id) {
       throw new Error('Not a Spotify playlist link')
     }
-    const html = await this.httpGet(`https://open.spotify.com/embed/playlist/${id}`)
+    // Spotify intermittently serves a bot-challenge/error page instead of the
+    // playlist data. Retry with backoff across both page shapes before giving up.
+    const candidates = [`https://open.spotify.com/embed/playlist/${id}`, `https://open.spotify.com/playlist/${id}`]
+    let html: string | null = null
+    for (let attempt = 0; attempt < 3 && html === null; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+      try {
+        const page = await this.httpGet(candidates[attempt % candidates.length])
+        if (page.includes('__NEXT_DATA__')) {
+          html = page
+        }
+      } catch {
+        // Upstream error or challenge page — retry.
+      }
+    }
+    if (html === null) {
+      throw new Error('Spotify did not return playlist data')
+    }
     const m = html.match(/<script id="__NEXT_DATA__" type="application\/json"[^>]*>(.*?)<\/script>/s)
     if (!m) {
       throw new Error('Spotify did not return playlist data')
@@ -132,14 +154,16 @@ export class ImportService {
     // 1) Standard playlist HTML: parse the initial items directly.
     const html = await this.httpGet(`https://www.youtube.com/playlist?list=${encodeURIComponent(list)}`)
     const key = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1]
-    const initial = this.parseYtData(html.match(/var ytInitialData = ({.*?});<\/script>/s)?.[1])
+    const initial = this.parseYtData(html.match(/var ytInitialData = (\{.*?\});<\/script>/s)?.[1])
     if (!initial) {
       throw new Error('YouTube did not return playlist data')
     }
     const items = this.collectYtItems(initial)
-    const meta = (initial as {
-      metadata?: { playlistMetadataRenderer?: { title?: string } }
-    })?.metadata?.playlistMetadataRenderer?.title
+    const meta = (
+      initial as {
+        metadata?: { playlistMetadataRenderer?: { title?: string } }
+      }
+    )?.metadata?.playlistMetadataRenderer?.title
     const name = meta ?? this.parseTitle(html) ?? 'YouTube playlist'
 
     // 2) If the first page was lazy, page through YouTube's web client.
@@ -223,7 +247,10 @@ export class ImportService {
   private parseTitle(html: string): string {
     const m = html.match(/<title>(.*?)<\/title>/s)
     if (!m) return 'YouTube playlist'
-    return m[1].replace(/\s*-\s*YouTube\s*$/i, '').trim().slice(0, 200)
+    return m[1]
+      .replace(/\s*-\s*YouTube\s*$/i, '')
+      .trim()
+      .slice(0, 200)
   }
 
   // ---- Apple Music ----
@@ -265,7 +292,7 @@ export class ImportService {
   // ---- JioSaavn ----
 
   private async fetchJioSaavn(url: URL, wanted: number): Promise<{ items: Record<string, unknown>[]; name: string }> {
-    const token = url.pathname.split('/').filter(Boolean).pop()
+    const token = url.pathname.split('/').findLast(Boolean)
     if (!token) {
       throw new Error('Not a JioSaavn playlist link')
     }
@@ -288,15 +315,10 @@ export class ImportService {
   // ---- Matching ----
 
   private async bestMatch(title: string, artist?: string): Promise<unknown | null> {
-    const query = [title, artist].filter((s) => s && s.trim()).join(' ').trim().slice(0, 120)
-    if (!query) return null
-    try {
-      const res = await this.searchSongsUseCase.execute({ query, page: 0, limit: 8 })
-      const songs = res?.results ?? []
-      if (songs.length === 0) return null
+    const wantTitle = canonical(title)
+    const wantArtist = canonical(artist ?? '')
 
-      const wantTitle = canonical(title)
-      const wantArtist = canonical(artist ?? '')
+    const pick = (songs: unknown[]): { best: unknown | null; bestScore: number } => {
       let best: unknown | null = null
       let bestScore = 0
       for (const s of songs) {
@@ -320,7 +342,49 @@ export class ImportService {
           best = s
         }
       }
-      return bestScore >= 2 ? best : null
+      return { best, bestScore }
+    }
+
+    // Pass 1: title + artist query against a slightly larger pool. The artist
+    // term steers the search toward the original recording.
+    const query1 = [title, artist]
+      .filter((s) => s && s.trim())
+      .join(' ')
+      .trim()
+      .slice(0, 120)
+    if (query1) {
+      try {
+        const res = await this.searchSongsUseCase.execute({ query: query1, page: 0, limit: 12 })
+        const songs = res?.results ?? []
+        if (songs.length > 0) {
+          const { best, bestScore } = pick(songs)
+          if (bestScore >= 3) return best
+        }
+      } catch {
+        // Fall through to pass 2.
+      }
+    }
+
+    // Pass 2: title-only. When the source provides an artist, the match must
+    // still agree on artist so a wrong-artist cover is never attached. When no
+    // artist is known, an exact title is accepted.
+    if (!wantTitle) return null
+    try {
+      // Search the CLEAN title (decorations stripped) so "Sunflower -
+      // Spider-Man…" and "Pal Pal Dil Ke Paas - From …" resolve.
+      const res = await this.searchSongsUseCase.execute({ query: wantTitle.slice(0, 120), page: 0, limit: 12 })
+      const songs = res?.results ?? []
+      if (songs.length === 0) return null
+      const { best, bestScore } = pick(songs)
+      if (bestScore < 3) return null
+      if (!wantArtist) return best
+      const song = best as { artists?: { primary?: { name?: string }[] } }
+      const gotArtist = canonical(song.artists?.primary?.[0]?.name ?? '')
+      return wantArtist &&
+        gotArtist &&
+        (gotArtist === wantArtist || gotArtist.includes(wantArtist) || wantArtist.includes(gotArtist))
+        ? best
+        : null
     } catch {
       return null
     }
@@ -365,10 +429,14 @@ export class ImportService {
 function canonical(raw: string): string {
   return raw
     .toLowerCase()
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/[-–—:;./_+]/g, ' ')
-    .replace(/\b(feat|ft|official|lyrics|video|remix|live|cover|version|edit)\b.*$/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/\([^)]*\)/g, ' ')
+    .replaceAll(/\[[^\]]*\]/g, ' ')
+    .replaceAll(/[-,–—:;./_+"]/g, ' ')
+    .replaceAll(/\s*-\s*from\b.*$/g, ' ')
+    .replaceAll(
+      /\b(feat|ft|official|lyrics|video|remix|live|cover|version|edit|slowed|sped|reverb|instrumental|piano|acoustic|karaoke)\b.*$/g,
+      ' '
+    )
+    .replaceAll(/\s+/g, ' ')
     .trim()
 }

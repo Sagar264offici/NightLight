@@ -141,7 +141,35 @@ public final class LibraryFragment extends Fragment {
                                 playlists.createPlaylist(name, ok -> {
                                 })));
 
-        view.findViewById(R.id.library_import).setOnClickListener(v -> showImportDialog());
+        view.findViewById(R.id.library_import).setOnClickListener(v -> {
+            if (com.nightlight.app.util.AccountPrefs.isGuest(requireContext())) {
+                PlaylistDialogs.showGuestAccountPrompt(requireActivity(), () -> {
+                });
+                return;
+            }
+            showImportDialog();
+        });
+
+        // Explicit guest labeling: local playlists are temporary, saving to
+        // the account requires sign-in (spec: never a silent failure).
+        // NOTE: the fragment root is a ScrollView which can host only ONE
+        // direct child, so the banner is added INSIDE the content column.
+        if (com.nightlight.app.util.AccountPrefs.isGuest(requireContext())) {
+            TextView guestBanner = new TextView(requireContext());
+            guestBanner.setText(R.string.guest_banner);
+            guestBanner.setTextSize(12f);
+            guestBanner.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.nightlight_cream_dim));
+            guestBanner.setPadding(0, dp(4), 0, dp(4));
+            android.view.ViewGroup contentColumn =
+                    (android.view.ViewGroup) view.findViewById(R.id.library_liked_row).getParent();
+            if (contentColumn != null) {
+                contentColumn.addView(guestBanner, Math.min(1, contentColumn.getChildCount()));
+            }
+        }
+    }
+
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     /** Paste a Spotify/YouTube playlist URL; matched songs are saved locally. */
@@ -232,13 +260,14 @@ public final class LibraryFragment extends Fragment {
     }
 
     private void playPlaylist(Playlist playlist) {
-        java.util.List<Track> tracks = playlists.getTracks(playlist.id);
-        if (tracks.isEmpty()) {
-            android.widget.Toast.makeText(requireContext(),
-                    R.string.empty_playlists, android.widget.Toast.LENGTH_SHORT).show();
-            return;
-        }
-        TrackPlayer.play(requireContext(), tracks, 0);
+        playlists.getTracksAsync(playlist.id, tracks -> {
+            if (tracks.isEmpty()) {
+                android.widget.Toast.makeText(requireContext(),
+                        R.string.empty_playlists, android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            TrackPlayer.play(requireContext(), tracks, 0);
+        });
     }
 
     private static int indexOf(List<Track> tracks, Track track) {

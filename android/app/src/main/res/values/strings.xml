@@ -166,4 +166,79 @@ https://nightlight.app/l/%2$s</string>
     <string name="import_positive">Import</string>
     <string name="import_progress">Matching songs to the library…</string>
     <string name="import_done">Imported %1$d of %2$d songs</string>
+
+    <!-- Auth + onboarding -->
+    <string name="login_title">Welcome to NightLight</string>
+    <string name="login_subtitle">Sign in with your email to keep your library in sync</string>
+    <string name="login_email_hint">you@example.com</string>
+    <string name="login_continue">Continue</string>
+    <string name="login_otp_title">Check your inbox</string>
+    <string name="login_otp_subtitle">We sent a 6-digit code to %1$s</string>
+    <string name="login_otp_hint">6-digit code</string>
+    <string name="login_verify">Verify &amp; continue</string>
+    <string name="login_resend">Resend code</string>
+    <string name="login_resend_in">Resend in %1$d s</string>
+    <string name="otp_error_email">Enter a valid email address</string>
+    <string name="otp_error_invalid">That code is incorrect — check it and try again</string>
+    <string name="otp_error_expired">That code has expired — request a new one</string>
+    <string name="otp_error_too_many">Too many incorrect attempts — request a new code</string>
+    <string name="otp_error_cooldown">A code was just sent — wait a minute before resending</string>
+    <string name="otp_error_not_configured">Email service is warming up — please try again shortly</string>
+
+    <string name="onboarding_languages_title">What languages do you listen to?</string>
+    <string name="onboarding_languages_subtitle">Pick as many as you like — this shapes your recommendations</string>
+    <string name="onboarding_categories_title">What kind of music do you like?</string>
+    <string name="onboarding_categories_subtitle">Pick at least one to personalise your Home</string>
+    <string name="onboarding_next">Continue</string>
+    <string name="onboarding_finish">Start listening</string>
+    <string name="onboarding_selected">%1$d selected</string>
+
+    <string name="settings_account">Account</string>
+    <string name="settings_signed_out">Not signed in</string>
+    <string name="settings_sign_out_account_confirm">Sign out of NightLight? Your likes and playlists stay saved on this device.</string>
+
+    <!-- Auth: entry / guest / password flows -->
+    <string name="login_welcome">Welcome to NightLight</string>
+    <string name="login_tagline">Your music, after dark.</string>
+    <string name="login_password_hint">Password</string>
+    <string name="login_confirm_hint">Confirm password</string>
+    <string name="login_show_password">Show password</string>
+    <string name="login_link_create">Create Account</string>
+    <string name="login_link_have_account">Already have an account? Login</string>
+    <string name="login_link_forgot">Forgot Password?</string>
+    <string name="login_link_guest">Continue as Guest</string>
+    <string name="login_link_login">Login</string>
+    <string name="login_create_title">Create your account</string>
+    <string name="login_create_subtitle">A code will verify your email.</string>
+    <string name="login_create_button">Create Account</string>
+    <string name="login_password_title">Welcome back</string>
+    <string name="login_password_subtitle">Login with your email and password.</string>
+    <string name="login_login_button">Login</string>
+    <string name="login_error_password_weak">Password must be at least 8 characters with letters and numbers.</string>
+    <string name="login_error_password_mismatch">Passwords do not match.</string>
+    <string name="login_error_password_empty">Enter your password.</string>
+    <string name="login_error_email_exists">An account with this email already exists. Try logging in.</string>
+    <string name="login_error_invalid_credentials">Email or password is incorrect.</string>
+    <string name="login_forgot_title">Forgot password</string>
+    <string name="login_forgot_subtitle">We\'ll email you a reset code.</string>
+    <string name="login_forgot_button">Send reset code</string>
+    <string name="login_reset_otp_title">Check your email</string>
+    <string name="login_reset_otp_subtitle">Enter the reset code sent to %1$s.</string>
+    <string name="login_reset_new_title">Set a new password</string>
+    <string name="login_reset_new_subtitle">Choose a strong new password.</string>
+    <string name="login_reset_new_button">Save password</string>
+    <string name="login_reset_success">Password updated. Login with your new password.</string>
+    <string name="login_error_server">NightLight is having trouble right now — try again.</string>
+
+    <!-- Guest playlist gating -->
+    <string name="guest_sign_in_to_save">Sign in to save playlists</string>
+    <string name="guest_account_prompt_title">Create an account to save your playlists</string>
+    <string name="guest_account_prompt_message">Your current queue and temporary playlist stay on this device until you create an account.</string>
+    <string name="guest_import_disabled">Creating an account lets you keep imported playlists across devices.</string>
+    <string name="settings_account_type_guest">Guest · listening locally</string>
+    <string name="guest_banner">You\'re listening as a guest — sign in to save playlists.</string>
+    <string name="guest_conversion_title">Save your playlists?</string>
+    <string name="guest_conversion_message">You made playlists on this device before signing in. Keep them in your account so they sync everywhere?</string>
+    <string name="guest_conversion_save">Save them to my account</string>
+    <string name="guest_conversion_skip">Keep them on this device only</string>
 </resources>

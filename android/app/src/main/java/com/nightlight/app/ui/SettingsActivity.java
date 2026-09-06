@@ -1,8 +1,14 @@
 package com.nightlight.app.ui;
 
+import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -13,6 +19,9 @@ import com.bumptech.glide.Glide;
 import com.nightlight.app.BuildConfig;
 import com.nightlight.app.NightLightApp;
 import com.nightlight.app.R;
+import com.nightlight.app.data.repo.AuthRepository;
+import com.nightlight.app.util.AccountPrefs;
+import com.nightlight.app.util.TokenStore;
 
 public final class SettingsActivity extends AppCompatActivity {
 
@@ -35,6 +44,7 @@ public final class SettingsActivity extends AppCompatActivity {
         wireDiscovery();
         wireListenTogether();
         wireDeveloper();
+        wireAccount();
 
         findViewById(R.id.settings_clear_cache).setOnClickListener(v -> {
             Glide.get(this).clearMemory();
@@ -261,5 +271,83 @@ public final class SettingsActivity extends AppCompatActivity {
                     ? R.color.nightlight_gold : R.color.nightlight_cream));
             title.setTypeface(null, active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
+    }
+
+    /** Account section: signed-in email + sign out (clears session + onboarding). */
+    private void wireAccount() {
+        final ViewGroup content = findViewById(R.id.settings_content);
+        if (content == null) {
+            return;
+        }
+        int dp = Math.round(getResources().getDisplayMetrics().density);
+
+        TextView header = new TextView(this);
+        header.setText(R.string.settings_account);
+        header.setTextColor(getColor(R.color.nightlight_gold));
+        header.setTextSize(13f);
+        header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        headerLp.topMargin = Math.round(26f * dp);
+        header.setLayoutParams(headerLp);
+        content.addView(header);
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#E60B1128"));
+        bg.setCornerRadius(Math.round(16f * dp));
+        bg.setStroke(Math.round(1f * dp), Color.parseColor("#26FFFFFF"));
+        panel.setBackground(bg);
+        LinearLayout.LayoutParams panelLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        panelLp.topMargin = Math.round(10f * dp);
+        panel.setLayoutParams(panelLp);
+        int pad = Math.round(16f * dp);
+        panel.setPadding(pad, Math.round(6f * dp), pad, Math.round(6f * dp));
+
+        TextView email = new TextView(this);
+        email.setTextSize(15f);
+        email.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        email.setGravity(Gravity.START);
+        email.setPadding(0, Math.round(10f * dp), 0, Math.round(2f * dp));
+        String accountEmail = AccountPrefs.email(this);
+        if (TokenStore.hasToken() && accountEmail != null) {
+            email.setText(accountEmail);
+            email.setTextColor(getColor(R.color.nightlight_cream));
+        } else {
+            email.setText(R.string.settings_signed_out);
+            email.setTextColor(getColor(R.color.nightlight_cream_dim));
+        }
+        panel.addView(email);
+
+        TextView signOut = new TextView(this);
+        signOut.setText(R.string.settings_sign_out);
+        signOut.setTextSize(14f);
+        signOut.setTextColor(getColor(R.color.nightlight_error));
+        signOut.setGravity(Gravity.START);
+        signOut.setPadding(0, Math.round(6f * dp), 0, Math.round(10f * dp));
+        signOut.setOnClickListener(v -> {
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(R.string.settings_sign_out)
+                    .setMessage(R.string.settings_sign_out_account_confirm)
+                    .setPositiveButton(R.string.settings_sign_out, (d, w) -> doSignOut())
+                    .setNegativeButton(R.string.action_cancel, null)
+                    .show();
+        });
+        if (!TokenStore.hasToken()) {
+            signOut.setVisibility(View.GONE);
+        }
+        panel.addView(signOut);
+        content.addView(panel);
+    }
+
+    private void doSignOut() {
+        AuthRepository auth = ((NightLightApp) getApplication()).getAuthRepository();
+        auth.logout();
+        Intent login = new Intent(this, LoginActivity.class);
+        login.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(login);
+        finish();
     }
 }

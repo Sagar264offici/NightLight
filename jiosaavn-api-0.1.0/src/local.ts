@@ -13,22 +13,20 @@ async function main() {
   } catch (error) {
     console.error(
       '[NightLight] MongoDB connection failed — user data endpoints will be unavailable:',
-      (error as Error).message,
+      (error as Error).message
     )
-    console.error(
-      '[NightLight] Continuing in degraded mode: music search/proxy still works.',
-    )
+    console.error('[NightLight] Continuing in degraded mode: music search/proxy still works.')
   }
 
   serve(
     {
       fetch: app.fetch,
       port,
-      hostname: '0.0.0.0',
+      hostname: '0.0.0.0'
     },
     (info) => {
       console.log(`[NightLight] API listening on port ${info.port}`)
-    },
+    }
   )
 }
 

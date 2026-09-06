@@ -77,6 +77,23 @@ public final class AmbientAnimator {
             glowA.setInterpolator(new AccelerateDecelerateInterpolator());
             a.animators.add(glowA);
         }
+        if (artwork != null && isHigh(mode)) {
+            // High mode only: slow parallax drift so the composition never
+            // sits perfectly still. Deliberately small (±7px) — atmosphere,
+            // not distraction.
+            ObjectAnimator dx = ObjectAnimator.ofFloat(artwork, View.TRANSLATION_X, -7f, 7f);
+            dx.setDuration(5600);
+            dx.setRepeatCount(ValueAnimator.INFINITE);
+            dx.setRepeatMode(ValueAnimator.REVERSE);
+            dx.setInterpolator(new AccelerateDecelerateInterpolator());
+            ObjectAnimator dy = ObjectAnimator.ofFloat(artwork, View.TRANSLATION_Y, -5f, 5f);
+            dy.setDuration(7100);
+            dy.setRepeatCount(ValueAnimator.INFINITE);
+            dy.setRepeatMode(ValueAnimator.REVERSE);
+            dy.setInterpolator(new AccelerateDecelerateInterpolator());
+            a.animators.add(dx);
+            a.animators.add(dy);
+        }
         return a;
     }
 
@@ -122,6 +139,8 @@ public final class AmbientAnimator {
         for (View v : targets) {
             v.setScaleX(1f);
             v.setScaleY(1f);
+            v.setTranslationX(0f);
+            v.setTranslationY(0f);
         }
         targets.clear();
     }

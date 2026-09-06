@@ -87,14 +87,14 @@ public final class PlaylistActivity extends AppCompatActivity {
         countText = findViewById(R.id.playlist_count);
 
         findViewById(R.id.playlist_back).setOnClickListener(v -> finish());
-        findViewById(R.id.playlist_play).setOnClickListener(v -> {
-            List<Track> tracks = playlists.getTracks(playlistId);
-            if (tracks.isEmpty()) {
-                Toast.makeText(this, R.string.empty_playlists, Toast.LENGTH_SHORT).show();
-                return;
-            }
-            TrackPlayer.play(this, tracks, 0);
-        });
+        findViewById(R.id.playlist_play).setOnClickListener(v ->
+                playlists.getTracksAsync(playlistId, tracks -> {
+                    if (tracks.isEmpty()) {
+                        Toast.makeText(this, R.string.empty_playlists, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    TrackPlayer.play(this, tracks, 0);
+                }));
         findViewById(R.id.playlist_more).setOnClickListener(v -> showPlaylistMenu());
 
         RecyclerView list = findViewById(R.id.playlist_tracks);

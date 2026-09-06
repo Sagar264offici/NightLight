@@ -30,10 +30,7 @@ export async function requireUser(c: Context): Promise<AuthUser> {
   }
 
   const users = collection(Collections.USERS)
-  const user = await users.findOne(
-    { tokenHash: hashToken(token) },
-    { projection: { deviceId: 1, createdAt: 1 } }
-  )
+  const user = await users.findOne({ tokenHash: hashToken(token) }, { projection: { deviceId: 1, createdAt: 1 } })
 
   if (!user) {
     throw ApiError.unauthorized()

@@ -2,6 +2,7 @@ package com.nightlight.app.data.api;
 
 import com.nightlight.app.data.api.dto.ApiResponse;
 import com.nightlight.app.data.api.dto.ImportDtos;
+import com.nightlight.app.data.api.dto.OtpDtos;
 import com.nightlight.app.data.api.dto.Requests;
 import com.nightlight.app.data.api.dto.SessionsDtos;
 import com.nightlight.app.data.api.dto.UserDtos;
@@ -23,6 +24,34 @@ public interface NightLightApi {
     // Auth
     @POST("auth/register")
     Call<ApiResponse<UserDtos.AuthDataDto>> register(@Body Requests.RegisterRequest body);
+
+    @POST("auth/request-otp")
+    Call<ApiResponse<OtpDtos.RequestOtpResponse>> requestOtp(@Body OtpDtos.RequestOtpRequest body);
+
+    @POST("auth/verify-otp")
+    Call<ApiResponse<OtpDtos.VerifyOtpResponse>> verifyOtp(@Body OtpDtos.VerifyOtpRequest body);
+
+    @PUT("auth/preferences")
+    Call<ApiResponse<Object>> savePreferences(@Body OtpDtos.SavePreferencesRequest body);
+
+    // Email + password auth
+    @POST("auth/register-password")
+    Call<ApiResponse<OtpDtos.PasswordRegisterResponse>> registerPassword(@Body OtpDtos.PasswordRegisterRequest body);
+
+    @POST("auth/login")
+    Call<ApiResponse<OtpDtos.LoginResponse>> login(@Body OtpDtos.LoginRequest body);
+
+    @POST("auth/forgot-password")
+    Call<ApiResponse<OtpDtos.RequestOtpResponse>> forgotPassword(@Body OtpDtos.ForgotPasswordRequest body);
+
+    @POST("auth/reset-verify")
+    Call<ApiResponse<OtpDtos.ResetVerifyResponse>> resetVerify(@Body OtpDtos.ResetVerifyRequest body);
+
+    @POST("auth/reset-password")
+    Call<ApiResponse<Object>> resetPassword(@Body OtpDtos.ResetPasswordRequest body);
+
+    @POST("auth/logout")
+    Call<ApiResponse<Object>> logout();
 
     // User-data resources are namespaced under /api/me to keep them distinct
     // from the music-proxy module (which owns /api/playlists, /api/songs, ...).

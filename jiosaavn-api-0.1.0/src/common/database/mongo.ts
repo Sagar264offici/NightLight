@@ -15,13 +15,19 @@ export const Collections = {
   PLAYLISTS: 'playlists',
   PLAYLIST_TRACKS: 'playlistTracks',
   PREFERENCES: 'preferences',
-  SESSIONS: 'sessions'
+  SESSIONS: 'sessions',
+  OTPS: 'otps'
 } as const
 
 async function ensureIndexes(database: Db) {
   const users = database.collection(Collections.USERS)
-  await users.createIndex({ deviceId: 1 }, { unique: true })
+  await users.createIndex({ deviceId: 1 }, { unique: true, sparse: true })
+  await users.createIndex({ email: 1 }, { unique: true, sparse: true })
   await users.createIndex({ tokenHash: 1 }, { unique: true })
+
+  const otps = database.collection(Collections.OTPS)
+  await otps.createIndex({ email: 1, createdAt: -1 })
+  await otps.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 
   const likes = database.collection(Collections.LIKES)
   await likes.createIndex({ userId: 1, trackId: 1 }, { unique: true })

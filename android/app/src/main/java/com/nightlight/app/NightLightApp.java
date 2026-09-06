@@ -29,22 +29,20 @@ public final class NightLightApp extends Application {
         PlaybackManager playback = PlaybackManager.get(this);
         playback.setTrackStartedListener(track -> getLibraryRepository().recordPlay(track));
 
-        // Background sync: authenticate the device, then reconcile user data.
+        // Background sync: reconcile user data only for authenticated users.
+        // Guests (no token) keep everything local: no server account is ever
+        // created for them, and their playlists/likes never reach MongoDB.
         // Room shows local data instantly; this never blocks startup.
-        AppExecutors.get().network().execute(() -> {
-            try {
-                Thread.sleep(1200);
-            } catch (InterruptedException ignored) {
-            }
-            getAuthRepository().ensureAuthenticated(
-                    () -> {
-                        getLibraryRepository().syncFromServer();
-                        getPlaylistRepository().syncFromServer();
-                    },
-                    () -> {
-                        // Offline or backend down: local library remains fully usable.
-                    });
-        });
+        if (TokenStore.hasToken()) {
+            AppExecutors.get().network().execute(() -> {
+                try {
+                    Thread.sleep(1200);
+                } catch (InterruptedException ignored) {
+                }
+                getLibraryRepository().syncFromServer();
+                getPlaylistRepository().syncFromServer();
+            });
+        }
     }
 
     public static NightLightApp get() {

@@ -108,6 +108,24 @@ public final class PlaybackManager {
     private long lastNextAt;
 
     /**
+     * User NEXT taps that have not yet been reflected by an item transition.
+     * Media3 can coalesce back-to-back relative seeks when a previous skip is
+     * still buffering, which used to silently drop rapid taps; the backlog is
+     * drained one transition at a time so every tap still lands.
+     */
+    private int pendingNext;
+
+    /** Retry watchdog for a skip that never manifested as a transition. */
+    private static final long NEXT_PUSH_RETRY_MS = 1200;
+    private long nextPushGen;
+    private final Runnable nextPushWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            pushNext();
+        }
+    };
+
+    /**
      * When remaining upcoming tracks fall below this threshold and Smart
      * Shuffle is active, a proactive radio top-up is triggered so playback
      * never stutters from an empty queue.
@@ -191,6 +209,17 @@ public final class PlaybackManager {
                 if (newId != null && !newId.equals(lastTransitionId)) {
                     lastTransitionId = newId;
                     smartGeneration.incrementAndGet();
+                }
+                // Consume one pending NEXT: an item transition just occurred, so
+                // one user skip has manifested. Drain the rest shortly after,
+                // spacing the seeks so Media3 applies every one of them.
+                if (pendingNext > 0) {
+                    pendingNext--;
+                    nextPushGen++;
+                    main.removeCallbacks(nextPushWatchdog);
+                    if (pendingNext > 0) {
+                        main.postDelayed(nextPushWatchdog, 300);
+                    }
                 }
                 recordedTrackId = null;
                 handleTrackStart();
@@ -339,11 +368,35 @@ public final class PlaybackManager {
                 }
             }
         }
+        pendingNext++;
+        pushNext();
+    }
+
+    /**
+     * Advances the queue for each pending NEXT. The debounce in {@link #next()}
+     * still guarantees one tap == one track; this loop only makes sure a skip is
+     * never lost when Media3 coalesces a seek issued while a previous skip is
+     * still buffering/transitioning.
+     */
+    private void pushNext() {
+        if (controller == null || pendingNext <= 0) {
+            return;
+        }
         if (controller.hasNextMediaItem()) {
             controller.seekToNextMediaItem();
         } else if (controller.getRepeatMode() != Player.REPEAT_MODE_OFF) {
             controller.seekToDefaultPosition(0);
+        } else {
+            // Nothing after the current item and repeat is off: clear the
+            // backlog so the retry watchdog does not spin forever.
+            pendingNext = 0;
+            return;
         }
+        // Watchdog: if the seek was coalesced away while another transition was
+        // in flight, re-push until an item actually changes.
+        nextPushGen++;
+        main.removeCallbacks(nextPushWatchdog);
+        main.postDelayed(nextPushWatchdog, NEXT_PUSH_RETRY_MS);
     }
 
     public void previous() {
@@ -491,7 +544,7 @@ public final class PlaybackManager {
         LibraryRepository library = nightLight.getLibraryRepository();
         List<Track> curated = engine.generateQueue(
                 seed, allTracks, new ArrayList<>(sessionRecent),
-                MoodPrefs.active(app.getApplicationContext()),
+                com.nightlight.app.util.AccountPrefs.effectiveMood(app.getApplicationContext()),
                 ShufflePrefs.discoveryRatio(app.getApplicationContext()),
                 new HashSet<>(sessionSkips),
                 library.likedIds(),
@@ -642,7 +695,7 @@ public final class PlaybackManager {
                     LibraryRepository library = nightLight.getLibraryRepository();
                     curated = engine.generateQueue(
                             seed, tracks, new ArrayList<>(sessionRecent),
-                            MoodPrefs.active(app.getApplicationContext()),
+                            com.nightlight.app.util.AccountPrefs.effectiveMood(app.getApplicationContext()),
                             ShufflePrefs.discoveryRatio(app.getApplicationContext()),
                             new HashSet<>(sessionSkips),
                             library.likedIds(),

@@ -62,6 +62,14 @@ public final class TokenStore {
         return token;
     }
 
+    /**
+     * Reads the persisted token without mutating in-memory state. Used at
+     * logout so the exact active token can be revoked server-side.
+     */
+    public static String peekToken() {
+        return token != null ? token : (prefs != null ? prefs.getString(KEY_TOKEN, null) : null);
+    }
+
     public static boolean hasToken() {
         return token != null && !token.isEmpty();
     }

@@ -2,6 +2,7 @@ package com.nightlight.app.ui.common;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
@@ -16,7 +17,9 @@ import com.nightlight.app.R;
 import com.nightlight.app.data.repo.PlaylistRepository;
 import com.nightlight.app.domain.model.Playlist;
 import com.nightlight.app.domain.model.Track;
+import com.nightlight.app.ui.LoginActivity;
 import com.nightlight.app.ui.adapters.PlaylistAdapter;
+import com.nightlight.app.util.AccountPrefs;
 
 import java.util.List;
 
@@ -28,6 +31,36 @@ public final class PlaylistDialogs {
 
     public interface NameCallback {
         void onName(String name);
+    }
+
+    public interface GuestConversionListener {
+        /** Called after the guest chooses to continue to signup (Create Account). */
+        void onGoCreateAccount();
+    }
+
+    /**
+     * Premium account-required prompt for guests. The listener lets the
+     * caller pass pending local state (e.g. the just-created playlist name)
+     * into the signup flow; on success OnboardingActivity offers to save it.
+     */
+    public static void showGuestAccountPrompt(Activity activity, GuestConversionListener onConvert) {
+        new AlertDialog.Builder(activity)
+                .setTitle(R.string.guest_account_prompt_title)
+                .setMessage(R.string.guest_account_prompt_message)
+                .setPositiveButton(R.string.login_link_create, (d, w) -> {
+                    AccountPrefs.setPendingGuestConversion(activity, true);
+                    activity.startActivity(new Intent(activity, LoginActivity.class)
+                            .putExtra(LoginActivity.EXTRA_MODE, LoginActivity.MODE_CREATE));
+                    onConvert.onGoCreateAccount();
+                })
+                .setNeutralButton(R.string.login_login_button, (d, w) -> {
+                    AccountPrefs.setPendingGuestConversion(activity, true);
+                    activity.startActivity(new Intent(activity, LoginActivity.class)
+                            .putExtra(LoginActivity.EXTRA_MODE, LoginActivity.MODE_LOGIN));
+                    onConvert.onGoCreateAccount();
+                })
+                .setNegativeButton(R.string.action_cancel, null)
+                .show();
     }
 
     public static void showCreateDialog(Context context, String title, NameCallback callback) {
@@ -53,6 +86,11 @@ public final class PlaylistDialogs {
      * locally-first and mirrored to the server by the repository.
      */
     public static void showAddToPlaylistSheet(Activity activity, Track track) {
+        if (AccountPrefs.isGuest(activity)) {
+            showGuestAccountPrompt(activity, () -> {
+            });
+            return;
+        }
         PlaylistRepository repo = ((NightLightApp) activity.getApplication()).getPlaylistRepository();
 
         BottomSheetDialog sheet = new BottomSheetDialog(activity);

@@ -3,7 +3,6 @@ package com.nightlight.app.smartshuffle;
 import android.content.Context;
 
 import com.nightlight.app.data.api.dto.WeatherDtos;
-import com.nightlight.app.util.MoodPrefs;
 
 import java.util.Calendar;
 import java.util.Collections;
@@ -90,7 +89,7 @@ public final class ContextEngine {
     /** Builds the environment; weather may be null (Home keeps working). */
     public static Environment build(Context app, WeatherDtos.WeatherDto weather) {
         TimeOfDay t = timeOfDay();
-        String explicitMood = MoodPrefs.active(app);
+        String explicitMood = com.nightlight.app.util.AccountPrefs.effectiveMood(app);
         Set<String> hints = new LinkedHashSet<>();
         if (explicitMood != null) {
             hints.add(explicitMood);

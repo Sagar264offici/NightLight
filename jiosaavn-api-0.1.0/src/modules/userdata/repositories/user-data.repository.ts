@@ -193,7 +193,14 @@ export class UserDataRepository {
     artworkUrl: string
   ): Promise<WithId<PlaylistDoc>> {
     const now = new Date()
-    const res = await this.playlists().insertOne({ userId, name, description, artworkUrl, createdAt: now, updatedAt: now })
+    const res = await this.playlists().insertOne({
+      userId,
+      name,
+      description,
+      artworkUrl,
+      createdAt: now,
+      updatedAt: now
+    })
     return (await this.playlists().findOne({ _id: res.insertedId }))!
   }
 
@@ -224,7 +231,9 @@ export class UserDataRepository {
     playlistId: string,
     patch: { name?: string; description?: string; artworkUrl?: string }
   ): Promise<WithId<PlaylistDoc> | null> {
-    const update: Partial<Pick<PlaylistDoc, 'name' | 'description' | 'artworkUrl' | 'updatedAt'>> = { updatedAt: new Date() }
+    const update: Partial<Pick<PlaylistDoc, 'name' | 'description' | 'artworkUrl' | 'updatedAt'>> = {
+      updatedAt: new Date()
+    }
     if (patch.name !== undefined) update.name = patch.name
     if (patch.description !== undefined) update.description = patch.description
     if (patch.artworkUrl !== undefined) update.artworkUrl = patch.artworkUrl
@@ -241,7 +250,11 @@ export class UserDataRepository {
     return res.deletedCount > 0
   }
 
-  async listPlaylistTracks(playlistId: string, playlistOwnerId: string, userId: string): Promise<WithId<PlaylistTrackDoc>[]> {
+  async listPlaylistTracks(
+    playlistId: string,
+    playlistOwnerId: string,
+    userId: string
+  ): Promise<WithId<PlaylistTrackDoc>[]> {
     if (playlistOwnerId !== userId) return []
     return this.playlistTracks()
       .find({ playlistId: toObjectId(playlistId).toString() }, { projection: { playlistId: 0 } })
@@ -283,7 +296,11 @@ export class UserDataRepository {
     return this.listPlaylistTracks(pid, userId, userId)
   }
 
-  async removeTrackFromPlaylist(userId: string, playlistId: string, trackId: string): Promise<WithId<PlaylistTrackDoc>[]> {
+  async removeTrackFromPlaylist(
+    userId: string,
+    playlistId: string,
+    trackId: string
+  ): Promise<WithId<PlaylistTrackDoc>[]> {
     const pid = toObjectId(playlistId).toString()
     const removed = await this.playlistTracks().findOneAndDelete({ playlistId: pid, trackId })
     if (removed) {
@@ -307,10 +324,7 @@ export class UserDataRepository {
     const pid = toObjectId(playlistId).toString()
     const validIds = trackIds.slice(0, 500)
     for (let i = 0; i < validIds.length; i++) {
-      await this.playlistTracks().updateOne(
-        { playlistId: pid, trackId: validIds[i] },
-        { $set: { position: i } }
-      )
+      await this.playlistTracks().updateOne({ playlistId: pid, trackId: validIds[i] }, { $set: { position: i } })
     }
     await this.playlists().updateOne({ _id: toObjectId(playlistId) }, { $set: { updatedAt: new Date() } })
     return this.listPlaylistTracks(pid, userId, userId)
@@ -322,7 +336,10 @@ export class UserDataRepository {
     return this.preferences().findOne({ userId }, { projection: { userId: 0 } })
   }
 
-  async setPreferences(userId: string, patch: Partial<Pick<PrefsDoc, 'repeatMode' | 'shuffle'>>): Promise<WithId<PrefsDoc> | null> {
+  async setPreferences(
+    userId: string,
+    patch: Partial<Pick<PrefsDoc, 'repeatMode' | 'shuffle'>>
+  ): Promise<WithId<PrefsDoc> | null> {
     const update: Partial<Pick<PrefsDoc, 'repeatMode' | 'shuffle' | 'updatedAt'>> = { updatedAt: new Date() }
     if (patch.repeatMode !== undefined) update.repeatMode = patch.repeatMode
     if (patch.shuffle !== undefined) update.shuffle = patch.shuffle

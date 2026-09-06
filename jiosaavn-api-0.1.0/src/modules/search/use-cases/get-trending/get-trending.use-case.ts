@@ -41,7 +41,15 @@ export interface TrendingResult {
   /** Real chart songs from JioSaavn's top chart (e.g. "Most Searched Songs"). */
   songs: SongPayload[]
   /** Newly trending albums from the JioSaavn launch screen. */
-  albums: Array<{ id: string; title: string; subtitle: string; image: string; url: string; language: string; year: string }>
+  albums: Array<{
+    id: string
+    title: string
+    subtitle: string
+    image: string
+    url: string
+    language: string
+    year: string
+  }>
   /** The available charts themselves (title/id/url/image). */
   charts: Array<{ id: string; title: string; image: string; url: string }>
   chartTitle: string
