@@ -59,6 +59,9 @@ public final class ErrorMapper {
         if ("EMAIL_NOT_VERIFIED".equals(body.code)) {
             return "Verify your email first, then continue.";
         }
+        if ("FIREBASE_TOKEN_INVALID".equals(body.code)) {
+            return "Sign-in could not be verified. Please try again.";
+        }
         if ("GOOGLE_NOT_CONFIGURED".equals(body.code)) {
             return "Google sign-in is not on the server yet - try again in a minute.";
         }
