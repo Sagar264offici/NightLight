@@ -85,6 +85,9 @@ export class FirebaseAuthService {
       }
     } catch (err) {
       if (err instanceof ApiError) throw err
+      // Temporary diagnostics: log only the failure class, never token data.
+      const cause = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      console.warn(`[NightLight] token verify failed: ${cause.slice(0, 200)}`)
       // Distinguish audience mismatch (misconfiguration) from forgery/expiry
       // so the client can show an actionable message. No token contents leak.
       const msg = err instanceof Error ? err.message : ''
