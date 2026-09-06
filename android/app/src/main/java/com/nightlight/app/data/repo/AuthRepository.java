@@ -285,6 +285,15 @@ public final class AuthRepository {
                     @Override
                     public void onResponse(Call<ApiResponse<OtpDtos.FirebaseExchangeResponse>> call,
                                            Response<ApiResponse<OtpDtos.FirebaseExchangeResponse>> response) {
+                        // Temporary diagnostic: status + raw error body (no token data).
+                        if (!response.isSuccessful()) {
+                            String raw = null;
+                            try {
+                                raw = response.errorBody() == null ? null : response.errorBody().string();
+                            } catch (Exception ignored) {
+                            }
+                            android.util.Log.e("NightLightAuth", "exchange HTTP " + response.code() + " body=" + raw);
+                        }
                         ApiResponse<OtpDtos.FirebaseExchangeResponse> body = response.body();
                         if (response.isSuccessful() && body != null && body.success
                                 && body.data != null && body.data.token != null) {
@@ -304,6 +313,7 @@ public final class AuthRepository {
 
                     @Override
                     public void onFailure(Call<ApiResponse<OtpDtos.FirebaseExchangeResponse>> call, Throwable t) {
+                        android.util.Log.e("NightLightAuth", "exchange network failure", t);
                         onError.run(ErrorMapper.toUserMessage(app, t));
                     }
                 });
