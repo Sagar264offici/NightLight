@@ -1,4 +1,4 @@
-import { MongoClient, type Collection, type Db } from 'mongodb'
+import { MongoClient, type Collection, type Db, type Document, type IndexSpecification } from 'mongodb'
 
 let client: MongoClient | null = null
 let db: Db | null = null
@@ -19,8 +19,34 @@ export const Collections = {
   OTPS: 'otps'
 } as const
 
+/**
+ * Create an index, self-healing when an existing index with the same name has
+ * different options (e.g. a pre-existing non-sparse `deviceId_1` from an older
+ * deployment). Drops and recreates in that case instead of failing startup.
+ */
+async function createIndexHealing<T extends Document>(
+  col: Collection<T>,
+  spec: IndexSpecification,
+  options: { name?: string } & Record<string, unknown>
+) {
+  try {
+    await col.createIndex(spec, options)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const isIndexConflict =
+      /IndexOptionsConflict|IndexKeySpecsConflict|same name as the requested index/i.test(msg)
+    if (!isIndexConflict) throw err
+    const probe = await col.listIndexes().toArray()
+    const dup = probe.find((ix) => JSON.stringify(ix.key) === JSON.stringify(spec))
+    if (dup && typeof dup.name === 'string') await col.dropIndex(dup.name)
+    await col.createIndex(spec, options)
+  }
+}
+
 async function ensureIndexes(database: Db) {
   const users = database.collection(Collections.USERS)
+  await createIndexHealing(users, { deviceId: 1 }, { unique: true, sparse: true, name: 'deviceId_1' })
+  await createIndexHealing(users, { email: 1 }, { unique: true, sparse: true, name: 'email_1' })
   await users.createIndex({ deviceId: 1 }, { unique: true, sparse: true })
   await users.createIndex({ email: 1 }, { unique: true, sparse: true })
   await users.createIndex({ tokenHash: 1 }, { unique: true })
@@ -93,5 +119,3 @@ export async function closeMongo(): Promise<void> {
   client = null
   db = null
 }
-
-type Document = Record<string, unknown>
