@@ -49,9 +49,12 @@ public final class ApiClient {
 
                     OkHttpClient.Builder builder = new OkHttpClient.Builder()
                             .connectionPool(new ConnectionPool(8, 30, TimeUnit.SECONDS))
-                            .connectTimeout(8, TimeUnit.SECONDS)
-                            .readTimeout(20, TimeUnit.SECONDS)
-                            .writeTimeout(20, TimeUnit.SECONDS)
+                            .connectTimeout(15, TimeUnit.SECONDS)
+                            // Render free tier can take ~50s to wake from sleep;
+                            // reads must outlast a cold start or the first
+                            // request after idle fails client-side.
+                            .readTimeout(75, TimeUnit.SECONDS)
+                            .writeTimeout(30, TimeUnit.SECONDS)
                             .cache(cache)
                             .addInterceptor(auth);
 
