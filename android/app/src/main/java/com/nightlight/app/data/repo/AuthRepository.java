@@ -142,12 +142,25 @@ public final class AuthRepository {
         }
         TokenStore.clearToken();
         AccountPrefs.clear(app);
+        new com.nightlight.app.data.api.GoogleSignInHelper(app).signOut(app);
     }
 
     // ---- Email + password auth (Firebase identity, NightLight session) ----
 
     private final com.nightlight.app.data.api.FirebaseAuthClient firebase =
             new com.nightlight.app.data.api.FirebaseAuthClient();
+
+    /**
+     * Google Sign-In: exchanges the Google ID token for a NightLight session.
+     * The backend verifies the token against Google's public keys, requires a
+     * verified email, and links the account by email (same mailbox from
+     * Google or password = same NightLight account).
+     */
+    public void loginWithGoogle(String googleIdToken,
+                                final Callback2 onSuccess,
+                                final Callback1<String> onError) {
+        exchangeAndFinish(googleIdToken, null, onSuccess, onError);
+    }
 
     /** In-memory pending registration state (app-scoped repository). */
     private String pendingEmail;
@@ -276,7 +289,10 @@ public final class AuthRepository {
                         if (response.isSuccessful() && body != null && body.success
                                 && body.data != null && body.data.token != null) {
                             TokenStore.setToken(body.data.token);
-                            AccountPrefs.setEmail(app, email);
+                            // Google tokens carry the email; use it when known.
+                            if (email != null) {
+                                AccountPrefs.setEmail(app, email);
+                            }
                             pendingEmail = null;
                             pendingPassword = null;
                             pendingFirebaseRefresh = null;

@@ -26,6 +26,7 @@ public final class NightLightApp extends Application {
 
         TokenStore.init(this);
         com.nightlight.app.data.api.FirebaseAuthClient.apiKey = BuildConfig.FIREBASE_API_KEY;
+        com.nightlight.app.data.api.GoogleSignInHelper.serverClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID;
         // Kick off the media-session connection immediately (async, non-blocking).
         PlaybackManager playback = PlaybackManager.get(this);
         playback.setTrackStartedListener(track -> getLibraryRepository().recordPlay(track));

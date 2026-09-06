@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto'
+import { decodeJwt } from 'jose'
 import { collection, Collections } from '#common/database/mongo'
 import { hashToken } from '#common/middleware/auth'
 import { ApiError } from '#common/errors/api-error'
 import { verifyFirebaseIdToken, type FirebaseIdentity } from './firebase.service'
+import { verifyGoogleIdToken } from '#common/identity/google-token.service'
 
 /**
  * Bridges Firebase Authentication identities to the existing NightLight
@@ -51,15 +53,32 @@ export class FirebaseAuthService {
 
   async exchange(idToken: string): Promise<ExchangeResult> {
     if (!idToken || typeof idToken !== 'string' || idToken.length < 32) {
-      throw ApiError.badRequest('A Firebase ID token is required', 'FIREBASE_TOKEN_INVALID')
+      throw ApiError.badRequest('A sign-in token is required', 'FIREBASE_TOKEN_INVALID')
+    }
+
+    // Route by issuer. The unverified decode is used ONLY to pick the
+    // verifier; each verifier re-checks signature, issuer and audience, so a
+    // forged issuer claim cannot cross into the wrong trust domain.
+    let issuer = ''
+    try {
+      issuer = String((decodeJwt(idToken).iss as string) ?? '')
+    } catch {
+      throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Sign-in could not be verified. Please sign in again.')
     }
 
     let identity: FirebaseIdentity
     try {
-      identity = await verifyFirebaseIdToken(idToken)
+      if (issuer.startsWith('https://accounts.google.com') || issuer === 'accounts.google.com') {
+        // Google Sign-In: Google has already verified the email for gmail
+        // addresses and verified custom domains (email_verified claim).
+        const g = await verifyGoogleIdToken(idToken)
+        identity = { uid: `google:${g.sub}`, email: g.email, emailVerified: g.emailVerified }
+      } else {
+        identity = await verifyFirebaseIdToken(idToken)
+      }
     } catch {
-      // Invalid, expired, wrong project, or forged tokens all land here with
-      // one uniform rejection that leaks nothing about which check failed.
+      // Invalid, expired, wrong project/audience, or forged tokens all land
+      // here with one uniform rejection that leaks nothing about the cause.
       throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Sign-in could not be verified. Please sign in again.')
     }
 

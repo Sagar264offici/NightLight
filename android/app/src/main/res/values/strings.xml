@@ -183,6 +183,7 @@ https://nightlight.app/l/%2$s</string>
     <string name="login_otp_hint">6-digit code</string>
     <string name="login_verify">Verify &amp; continue</string>
     <string name="login_resend">Resend code</string>
+    <string name="login_google">Continue with Google</string>
     <string name="login_resend_in">Resend in %1$d s</string>
     <string name="otp_error_email">Enter a valid email address</string>
     <string name="otp_error_invalid">That code is incorrect — check it and try again</string>

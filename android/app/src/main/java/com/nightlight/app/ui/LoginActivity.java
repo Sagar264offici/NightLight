@@ -75,6 +75,8 @@ public final class LoginActivity extends AppCompatActivity {
     private android.widget.CheckBox passwordToggle;
     private android.widget.CheckBox confirmToggle;
     private ProgressBar spinner;
+    private android.widget.Button googleButton;
+    private com.nightlight.app.data.api.GoogleSignInHelper googleHelper;
 
     private int mode = MODE_ENTRY;
     private String email;
@@ -284,6 +286,23 @@ public final class LoginActivity extends AppCompatActivity {
         guestButton.setLayoutParams(guestLp);
         content.addView(guestButton);
 
+        // Continue with Google - primary option under Guest, entry screen only.
+        googleButton = new android.widget.Button(this);
+        googleButton.setAllCaps(false);
+        googleButton.setTextSize(15f);
+        googleButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        googleButton.setTextColor(getColor(R.color.nightlight_cream));
+        googleButton.setBackground(outlineButtonBackground());
+        googleButton.setText(R.string.login_google);
+        googleButton.setOnClickListener(v -> startGoogleSignIn());
+        LinearLayout.LayoutParams googleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(50f * getResources().getDisplayMetrics().density));
+        googleLp.topMargin = Math.round(10f * getResources().getDisplayMetrics().density);
+        googleButton.setLayoutParams(googleLp);
+        content.addView(googleButton);
+
+        googleHelper = new com.nightlight.app.data.api.GoogleSignInHelper(this);
+
         errorText = new TextView(this);
         errorText.setTextColor(getColor(R.color.nightlight_error));
         errorText.setTextSize(13f);
@@ -411,6 +430,7 @@ public final class LoginActivity extends AppCompatActivity {
         loginLink.setVisibility(entry ? View.VISIBLE : View.GONE);
         forgotLink.setVisibility(entry || login ? View.VISIBLE : View.GONE);
         guestButton.setVisibility(entry ? View.VISIBLE : View.GONE);
+        googleButton.setVisibility(entry ? View.VISIBLE : View.GONE);
 
         if (entry) {
             stepTitle.setText(R.string.login_title);
@@ -563,6 +583,31 @@ public final class LoginActivity extends AppCompatActivity {
     }
 
     /** Re-checks verification with Firebase and exchanges for a session. */
+    /** Launches the Google account picker and exchanges the ID token. */
+    private void startGoogleSignIn() {
+        if (busy) {
+            return;
+        }
+        hideError();
+        setBusy(true);
+        googleHelper.signIn(this, (idToken, error) -> {
+            if (error != null) {
+                setBusy(false);
+                showError(error);
+                return;
+            }
+            if (idToken == null) {
+                // User dismissed the picker - not an error.
+                setBusy(false);
+                return;
+            }
+            auth.loginWithGoogle(idToken, this::onAuthenticated, message -> {
+                setBusy(false);
+                showError(message);
+            });
+        });
+    }
+
     private void completeEmailVerification() {
         setBusy(true);
         auth.completeRegistration(this::onAuthenticated, message -> {
