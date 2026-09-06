@@ -56,6 +56,15 @@ public final class ErrorMapper {
         if ("UNAUTHORIZED".equals(body.code)) {
             return context.getString(R.string.error_unauthorized);
         }
+        if ("EMAIL_NOT_VERIFIED".equals(body.code)) {
+            return "Verify your email first, then continue.";
+        }
+        if ("GOOGLE_NOT_CONFIGURED".equals(body.code)) {
+            return "Google sign-in is not on the server yet - try again in a minute.";
+        }
+        if ("TOKEN_AUDIENCE_MISMATCH".equals(body.code)) {
+            return "Sign-in config mismatch - update the app from the latest release.";
+        }
         int status = body.code != null ? statusForCode(body.code) : 500;
         return forHttpCode(context, status);
     }

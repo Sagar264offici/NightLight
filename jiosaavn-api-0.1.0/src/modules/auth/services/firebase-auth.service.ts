@@ -71,14 +71,30 @@ export class FirebaseAuthService {
       if (issuer.startsWith('https://accounts.google.com') || issuer === 'accounts.google.com') {
         // Google Sign-In: Google has already verified the email for gmail
         // addresses and verified custom domains (email_verified claim).
+        if (!process.env.GOOGLE_WEB_CLIENT_ID) {
+          throw new ApiError(
+            503,
+            'GOOGLE_NOT_CONFIGURED',
+            'Google sign-in is not configured on the server yet.'
+          )
+        }
         const g = await verifyGoogleIdToken(idToken)
         identity = { uid: `google:${g.sub}`, email: g.email, emailVerified: g.emailVerified }
       } else {
         identity = await verifyFirebaseIdToken(idToken)
       }
-    } catch {
-      // Invalid, expired, wrong project/audience, or forged tokens all land
-      // here with one uniform rejection that leaks nothing about the cause.
+    } catch (err) {
+      if (err instanceof ApiError) throw err
+      // Distinguish audience mismatch (misconfiguration) from forgery/expiry
+      // so the client can show an actionable message. No token contents leak.
+      const msg = err instanceof Error ? err.message : ''
+      if (/audience|aud/i.test(msg)) {
+        throw new ApiError(
+          401,
+          'TOKEN_AUDIENCE_MISMATCH',
+          'Sign-in configuration mismatch. Update the app or server config.'
+        )
+      }
       throw new ApiError(401, 'FIREBASE_TOKEN_INVALID', 'Sign-in could not be verified. Please sign in again.')
     }
 
