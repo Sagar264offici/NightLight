@@ -144,50 +144,142 @@ public final class AuthRepository {
         AccountPrefs.clear(app);
     }
 
-    // ---- Email + password auth ----
+    // ---- Email + password auth (Firebase identity, NightLight session) ----
+
+    private final com.nightlight.app.data.api.FirebaseAuthClient firebase =
+            new com.nightlight.app.data.api.FirebaseAuthClient();
+
+    /** In-memory pending registration state (app-scoped repository). */
+    private String pendingEmail;
+    private String pendingPassword;
+    private String pendingFirebaseRefresh;
 
     /**
-     * Creates a password account. The backend emails a verification code and
-     * returns NO session; the mailbox is proven via {@link #verifyOtp}.
+     * Creates the account with Firebase. Google emails the verification link
+     * directly to the user (free for all users, no provider key needed). NO
+     * session is issued until the mailbox is verified and exchanged.
      */
     public void registerPassword(String email, String password,
                                  final Callback2 onSuccess,
                                  final Callback1<String> onError) {
-        api.registerPassword(new OtpDtos.PasswordRegisterRequest(email, password))
-                .enqueue(new Callback<ApiResponse<OtpDtos.PasswordRegisterResponse>>() {
-                    @Override
-                    public void onResponse(Call<ApiResponse<OtpDtos.PasswordRegisterResponse>> call,
-                                           Response<ApiResponse<OtpDtos.PasswordRegisterResponse>> response) {
-                        ApiResponse<OtpDtos.PasswordRegisterResponse> body = response.body();
-                        if (response.isSuccessful() && body != null && body.success) {
-                            AccountPrefs.setEmail(app, email);
-                            onSuccess.run();
-                        } else {
-                            onError.run(friendlyError(response, body));
-                        }
-                    }
-
-                    @Override
-                    public void onFailure(Call<ApiResponse<OtpDtos.PasswordRegisterResponse>> call, Throwable t) {
-                        onError.run(ErrorMapper.toUserMessage(app, t));
-                    }
-                });
+        firebase.signUp(email, password, (data, err) -> {
+            if (err != null) {
+                if (err.contains("already exists")) {
+                    // Friendly nudge: existing users should log in instead.
+                    onError.run(err);
+                } else {
+                    onError.run(err);
+                }
+                return;
+            }
+            pendingEmail = email;
+            pendingPassword = password;
+            pendingFirebaseRefresh = data == null ? null : data.optString("refreshToken", null);
+            AccountPrefs.setEmail(app, email);
+            onSuccess.run();
+        });
     }
 
-    /** Logs in with email + password and stores the returned session token. */
+    /** Re-sends the Firebase verification email for the pending registration. */
+    public void resendVerificationEmail(final Callback2 onSuccess, final Callback1<String> onError) {
+        if (pendingFirebaseRefresh == null) {
+            onError.run("Start by creating the account first.");
+            return;
+        }
+        firebase.refreshIdToken(pendingFirebaseRefresh, (tok, err) -> {
+            if (err != null) {
+                onError.run(err);
+                return;
+            }
+            String idToken = tok == null ? null : tok.optString("id_token", null);
+            if (idToken == null) {
+                onError.run("Could not refresh the session. Please log in again.");
+                return;
+            }
+            // sendOobCode with VERIFY_EMAIL requires an ID token.
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                firebase.sendVerificationEmail(idToken, (d, err2) -> {
+                    if (err2 != null) {
+                        onError.run(err2);
+                    } else {
+                        onSuccess.run();
+                    }
+                });
+            });
+        });
+    }
+
+    /**
+     * Called when the user taps "I've verified" (or poll timer fires):
+     * re-authenticates and exchanges. On success the NightLight session is
+     * stored exactly like password login.
+     */
+    public void completeRegistration(final Callback2 onSuccess, final Callback1<String> onError) {
+        if (pendingEmail == null || pendingPassword == null) {
+            onError.run("Please log in to continue.");
+            return;
+        }
+        // signIn re-issues an ID token that now carries email_verified=true.
+        firebase.signIn(pendingEmail, pendingPassword, (signInData, signInErr) -> {
+            if (signInErr != null) {
+                onError.run(signInErr);
+                return;
+            }
+            String idToken = signInData == null ? null : signInData.optString("idToken", null);
+            if (idToken == null) {
+                onError.run("Sign-in succeeded but the session could not be created. Try again.");
+                return;
+            }
+            exchangeAndFinish(idToken, pendingEmail, onSuccess, verifiedError -> {
+                // Distinguish "email not verified yet" from other errors.
+                if (verifiedError != null && verifiedError.contains("Verify your email")) {
+                    onError.run("Not verified yet - tap the link in your email, then try again.");
+                } else {
+                    onError.run(verifiedError);
+                }
+            });
+        });
+    }
+
+    /** Logs in with email + password via Firebase, then exchanges for a session. */
     public void loginPassword(String email, String password,
                               final Callback2 onSuccess,
                               final Callback1<String> onError) {
-        api.login(new OtpDtos.LoginRequest(email, password))
-                .enqueue(new Callback<ApiResponse<OtpDtos.LoginResponse>>() {
+        firebase.signIn(email, password, (data, err) -> {
+            if (err != null) {
+                onError.run(err);
+                return;
+            }
+            String idToken = data == null ? null : data.optString("idToken", null);
+            if (idToken == null) {
+                onError.run("Sign-in succeeded but the session could not be created. Try again.");
+                return;
+            }
+            exchangeAndFinish(idToken, email, onSuccess, onError);
+        });
+    }
+
+    /**
+     * Swaps a Firebase ID token for the NightLight session via the backend
+     * (server verifies the token against Google's public keys and enforces a
+     * verified mailbox), then stores the session exactly like OTP login.
+     */
+    private void exchangeAndFinish(String idToken, String email,
+                                   final Callback2 onSuccess,
+                                   final Callback1<String> onError) {
+        api.firebaseExchange(new OtpDtos.FirebaseExchangeRequest(idToken))
+                .enqueue(new Callback<ApiResponse<OtpDtos.FirebaseExchangeResponse>>() {
                     @Override
-                    public void onResponse(Call<ApiResponse<OtpDtos.LoginResponse>> call,
-                                           Response<ApiResponse<OtpDtos.LoginResponse>> response) {
-                        ApiResponse<OtpDtos.LoginResponse> body = response.body();
+                    public void onResponse(Call<ApiResponse<OtpDtos.FirebaseExchangeResponse>> call,
+                                           Response<ApiResponse<OtpDtos.FirebaseExchangeResponse>> response) {
+                        ApiResponse<OtpDtos.FirebaseExchangeResponse> body = response.body();
                         if (response.isSuccessful() && body != null && body.success
                                 && body.data != null && body.data.token != null) {
                             TokenStore.setToken(body.data.token);
                             AccountPrefs.setEmail(app, email);
+                            pendingEmail = null;
+                            pendingPassword = null;
+                            pendingFirebaseRefresh = null;
                             onSuccess.run();
                         } else {
                             onError.run(friendlyError(response, body));
@@ -195,34 +287,26 @@ public final class AuthRepository {
                     }
 
                     @Override
-                    public void onFailure(Call<ApiResponse<OtpDtos.LoginResponse>> call, Throwable t) {
+                    public void onFailure(Call<ApiResponse<OtpDtos.FirebaseExchangeResponse>> call, Throwable t) {
                         onError.run(ErrorMapper.toUserMessage(app, t));
                     }
                 });
     }
 
-    /** Begins password recovery; a reset code is emailed server-side only. */
+    /**
+     * Password recovery: Google emails a reset link; the user completes the
+     * reset in the browser and returns to the app to log in.
+     */
     public void forgotPassword(String email,
                                final Callback2 onSuccess,
                                final Callback1<String> onError) {
-        api.forgotPassword(new OtpDtos.ForgotPasswordRequest(email))
-                .enqueue(new Callback<ApiResponse<OtpDtos.RequestOtpResponse>>() {
-                    @Override
-                    public void onResponse(Call<ApiResponse<OtpDtos.RequestOtpResponse>> call,
-                                           Response<ApiResponse<OtpDtos.RequestOtpResponse>> response) {
-                        ApiResponse<OtpDtos.RequestOtpResponse> body = response.body();
-                        if (response.isSuccessful() && body != null && body.success) {
-                            onSuccess.run();
-                        } else {
-                            onError.run(friendlyError(response, body));
-                        }
-                    }
-
-                    @Override
-                    public void onFailure(Call<ApiResponse<OtpDtos.RequestOtpResponse>> call, Throwable t) {
-                        onError.run(ErrorMapper.toUserMessage(app, t));
-                    }
-                });
+        firebase.sendPasswordReset(email, (data, err) -> {
+            if (err != null) {
+                onError.run(err);
+            } else {
+                onSuccess.run();
+            }
+        });
     }
 
     /** Exchanges the emailed reset code for a one-time reset token. */

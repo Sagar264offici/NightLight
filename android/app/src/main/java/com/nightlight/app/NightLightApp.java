@@ -25,6 +25,7 @@ public final class NightLightApp extends Application {
         instance = this;
 
         TokenStore.init(this);
+        com.nightlight.app.data.api.FirebaseAuthClient.apiKey = BuildConfig.FIREBASE_API_KEY;
         // Kick off the media-session connection immediately (async, non-blocking).
         PlaybackManager playback = PlaybackManager.get(this);
         playback.setTrackStartedListener(track -> getLibraryRepository().recordPlay(track));

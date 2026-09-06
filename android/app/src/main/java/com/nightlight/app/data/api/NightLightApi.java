@@ -53,6 +53,10 @@ public interface NightLightApi {
     @POST("auth/logout")
     Call<ApiResponse<Object>> logout();
 
+    // Firebase bridging: swap a Firebase ID token for a NightLight session.
+    @POST("auth/firebase/exchange")
+    Call<ApiResponse<OtpDtos.FirebaseExchangeResponse>> firebaseExchange(@Body OtpDtos.FirebaseExchangeRequest body);
+
     // User-data resources are namespaced under /api/me to keep them distinct
     // from the music-proxy module (which owns /api/playlists, /api/songs, ...).
     // Likes

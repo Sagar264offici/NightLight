@@ -95,6 +95,21 @@ public final class OtpDtos {
         public VerifyOtpUser user;
     }
 
+    /** Swaps a verified Firebase ID token for a NightLight session. */
+    public static final class FirebaseExchangeRequest {
+        public String idToken;
+
+        public FirebaseExchangeRequest(String idToken) {
+            this.idToken = idToken;
+        }
+    }
+
+    /** Same payload as the password login response. */
+    public static final class FirebaseExchangeResponse {
+        public String token;
+        public VerifyOtpUser user;
+    }
+
     public static final class ForgotPasswordRequest {
         public String email;
 

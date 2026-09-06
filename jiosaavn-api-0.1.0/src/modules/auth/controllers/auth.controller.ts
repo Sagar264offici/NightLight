@@ -3,6 +3,7 @@ import { ApiError } from '#common/errors/api-error'
 import { requireUser } from '#common/middleware/auth'
 import { rateLimit } from '#common/middleware/rate-limit'
 import { AuthService, OtpService, PasswordService } from '../services'
+import { FirebaseAuthService } from '../services/firebase-auth.service'
 import type { Routes } from '#common/types'
 
 const RegisterBody = z.object({
@@ -57,12 +58,14 @@ export class AuthController implements Routes {
   private authService: AuthService
   private otpService: OtpService
   private passwordService: PasswordService
+  private firebaseAuthService: FirebaseAuthService
 
   constructor() {
     this.controller = new OpenAPIHono()
     this.authService = new AuthService()
     this.otpService = new OtpService()
     this.passwordService = new PasswordService()
+    this.firebaseAuthService = new FirebaseAuthService()
   }
 
   public initRoutes() {
@@ -462,6 +465,38 @@ export class AuthController implements Routes {
         await requireUser(ctx) // reject cleanly when no valid session
         await this.passwordService.logout(token)
         return ctx.json({ success: true, data: { loggedOut: true } })
+      }
+    )
+
+    const FirebaseExchangeSchema = z.object({
+      idToken: z.string().min(32).max(4096)
+    })
+
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/auth/firebase/exchange',
+        tags: ['Auth'],
+        summary: 'Exchange a verified Firebase ID token for a NightLight session',
+        description:
+          'Android authenticates with Firebase, then swaps the verified ID ' +
+          'token for the same hashed session used by password login.',
+        operationId: 'firebaseExchange',
+        request: { body: { content: { 'application/json': { schema: FirebaseExchangeSchema } } } },
+        responses: {
+          200: {
+            description: 'Session issued',
+            content: { 'application/json': { schema: authData(z.object(sessionShape)) } }
+          },
+          401: { description: 'Invalid or expired Firebase token' },
+          403: { description: 'Firebase email not verified' },
+          503: { description: 'Firebase auth not configured on this deployment' }
+        }
+      }),
+      async (ctx) => {
+        const { idToken } = ctx.req.valid('json')
+        const data = await this.firebaseAuthService.exchange(idToken)
+        return ctx.json({ success: true, data })
       }
     )
   }

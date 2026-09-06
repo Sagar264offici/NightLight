@@ -30,10 +30,12 @@ import java.util.regex.Pattern;
 /**
  * NightLight authentication hub.
  *
- * Entry screen: Continue with Email (OTP) / Continue as Guest as primary
- * options, with Create Account / Login / Forgot Password as secondary links.
- * Password flows talk to the backend's
- * scrypt+OTP-verified auth; the OTP flow is unchanged. Guests never receive
+ * Entry screen: Continue with Email (opens Firebase create-account) /
+ * Continue as Guest as primary options, with Create Account / Login / Forgot
+ * Password as secondary links. Identity = Firebase Auth (free for all users;
+ * Google delivers verification/reset email); sessions = existing NightLight
+ * hashed-token system via /auth/firebase/exchange. The legacy backend OTP
+ * flow remains available for accounts created that way. Guests never receive
  * a server token, so no server account can be created for them.
  */
 public final class LoginActivity extends AppCompatActivity {
@@ -77,6 +79,8 @@ public final class LoginActivity extends AppCompatActivity {
     private int mode = MODE_ENTRY;
     private String email;
     private String resetToken;
+    /** True between Firebase signup and the verified-email exchange. */
+    private boolean awaitingEmailVerification;
     private boolean busy;
     private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
 
@@ -224,7 +228,20 @@ public final class LoginActivity extends AppCompatActivity {
         resend.setGravity(Gravity.CENTER);
         resend.setPadding(0, Math.round(12f * getResources().getDisplayMetrics().density), 0, 0);
         resend.setOnClickListener(v -> {
-            if (mode == MODE_OTP) {
+            if (mode == MODE_OTP && awaitingEmailVerification) {
+                setBusy(true);
+                auth.resendVerificationEmail(() -> {
+                    setBusy(false);
+                    android.widget.Toast.makeText(this,
+                            R.string.login_verify_wait_resent,
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    startResendCountdown();
+                }, message -> {
+                    setBusy(false);
+                    showError(message);
+                    startResendCountdown();
+                });
+            } else if (mode == MODE_OTP) {
                 requestOtp();
             } else if (mode == MODE_RESET_OTP) {
                 startForgotPassword();
@@ -382,7 +399,8 @@ public final class LoginActivity extends AppCompatActivity {
         boolean resetNew = mode == MODE_RESET_NEW;
 
         emailInput.setVisibility(entry || forgot || create || login ? View.VISIBLE : View.GONE);
-        otpInput.setVisibility(otp || resetOtp ? View.VISIBLE : View.GONE);
+        boolean verifyWait = otp && awaitingEmailVerification;
+        otpInput.setVisibility(otp && !verifyWait || resetOtp ? View.VISIBLE : View.GONE);
         passwordInput.setVisibility(create || login || resetNew ? View.VISIBLE : View.GONE);
         confirmInput.setVisibility(create || resetNew ? View.VISIBLE : View.GONE);
         passwordToggle.setVisibility(passwordInput.getVisibility());
@@ -406,9 +424,15 @@ public final class LoginActivity extends AppCompatActivity {
             forgotLink.setOnClickListener(v -> setMode(MODE_FORGOT));
             guestButton.setText(R.string.login_link_guest);
         } else if (otp) {
-            stepTitle.setText(R.string.login_otp_title);
-            stepSubtitle.setText(getString(R.string.login_otp_subtitle, email == null ? "" : email));
-            primaryButtonText.setText(R.string.login_verify);
+            if (awaitingEmailVerification) {
+                stepTitle.setText(R.string.login_verify_wait_title);
+                stepSubtitle.setText(getString(R.string.login_verify_wait_subtitle, email == null ? "" : email));
+                primaryButtonText.setText(R.string.login_verify_wait_button);
+            } else {
+                stepTitle.setText(R.string.login_otp_title);
+                stepSubtitle.setText(getString(R.string.login_otp_subtitle, email == null ? "" : email));
+                primaryButtonText.setText(R.string.login_verify);
+            }
         } else if (create) {
             stepTitle.setText(R.string.login_create_title);
             stepSubtitle.setText(R.string.login_create_subtitle);
@@ -477,15 +501,16 @@ public final class LoginActivity extends AppCompatActivity {
         hideError();
         switch (mode) {
             case MODE_ENTRY:
-                email = textOf(emailInput);
-                if (!EMAIL_PATTERN.matcher(email).matches()) {
-                    showError(getString(R.string.otp_error_email));
-                    return;
-                }
-                requestOtp();
+                // Primary CTA opens Firebase create-account (works for every
+                // user; Google delivers the verification email).
+                setMode(MODE_CREATE);
                 break;
             case MODE_OTP:
-                verifyCode(textOf(otpInput), false);
+                if (awaitingEmailVerification) {
+                    completeEmailVerification();
+                } else {
+                    verifyCode(textOf(otpInput), false);
+                }
                 break;
             case MODE_CREATE:
                 onCreateAccount();
@@ -526,10 +551,21 @@ public final class LoginActivity extends AppCompatActivity {
         setBusy(true);
         auth.registerPassword(email, password, () -> {
             setBusy(false);
-            // Same OTP step as the email flow: the code proves the mailbox.
+            // Firebase emailed the verification link. The mailbox is proven
+            // by the user tapping it, then we exchange the verified token.
+            awaitingEmailVerification = true;
             setMode(MODE_OTP);
             startResendCountdown();
         }, message -> {
+            setBusy(false);
+            showError(message);
+        });
+    }
+
+    /** Re-checks verification with Firebase and exchanges for a session. */
+    private void completeEmailVerification() {
+        setBusy(true);
+        auth.completeRegistration(this::onAuthenticated, message -> {
             setBusy(false);
             showError(message);
         });
@@ -582,8 +618,12 @@ public final class LoginActivity extends AppCompatActivity {
         setBusy(true);
         auth.forgotPassword(email, () -> {
             setBusy(false);
-            setMode(MODE_RESET_OTP);
-            startResendCountdown();
+            // Google emailed a reset link; the new password is set in the
+            // browser, then the user returns here to log in.
+            android.widget.Toast.makeText(this,
+                    getString(R.string.login_reset_email_sent, email),
+                    android.widget.Toast.LENGTH_LONG).show();
+            setMode(MODE_LOGIN);
         }, message -> {
             setBusy(false);
             showError(message);
@@ -669,7 +709,8 @@ public final class LoginActivity extends AppCompatActivity {
                 if (remaining[0] <= 0) {
                     resend.setEnabled(true);
                     resend.setTextColor(getColor(R.color.nightlight_gold));
-                    resend.setText(R.string.login_resend);
+                    resend.setText(awaitingEmailVerification
+                            ? R.string.login_resend_email : R.string.login_resend);
                 } else {
                     resend.setText(getString(R.string.login_resend_in, remaining[0]));
                     remaining[0]--;

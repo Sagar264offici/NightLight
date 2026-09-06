@@ -173,6 +173,12 @@ https://nightlight.app/l/%2$s</string>
     <string name="login_email_hint">you@example.com</string>
     <string name="login_continue">Continue</string>
     <string name="login_otp_title">Check your inbox</string>
+    <string name="login_verify_wait_title">Confirm your email</string>
+    <string name="login_verify_wait_subtitle">We sent a verification link to %1$s. Tap it, then come back and continue.</string>
+    <string name="login_verify_wait_button">I&#8217;ve verified &#8212; Continue</string>
+    <string name="login_verify_wait_resent">Verification email sent again</string>
+    <string name="login_resend_email">Resend email</string>
+    <string name="login_reset_email_sent">Reset link sent to %1$s. Set your new password in the email, then log in here.</string>
     <string name="login_otp_subtitle">We sent a 6-digit code to %1$s</string>
     <string name="login_otp_hint">6-digit code</string>
     <string name="login_verify">Verify &amp; continue</string>
