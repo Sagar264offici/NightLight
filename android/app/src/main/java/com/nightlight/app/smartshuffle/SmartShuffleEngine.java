@@ -3,8 +3,10 @@ package com.nightlight.app.smartshuffle;
 import com.nightlight.app.domain.model.Track;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -43,7 +45,7 @@ public final class SmartShuffleEngine {
     /** Generates an ordered queue from candidates, curating `recent` context. */
     public List<Track> generateQueue(Track seed, List<Track> candidates, List<Track> recent) {
         return generateQueue(seed, candidates, recent, null, 0.18,
-                Collections.<String>emptySet(), Collections.<String>emptySet());
+                Collections.<String>emptySet(), Collections.<String>emptySet(), null);
     }
 
     /**
@@ -53,13 +55,24 @@ public final class SmartShuffleEngine {
      * @param discoveryRatio 0..1 fraction of picks that deliberately wander
      * @param skipArtists    artists the listener skipped this session (weak negative)
      * @param likedIds       liked track ids (small familiarity bonus)
+     * @param currentTrackId the currently playing track id (excluded from candidates)
      */
     public List<Track> generateQueue(Track seed, List<Track> candidates, List<Track> recent,
                                      String explicitMood, double discoveryRatio,
-                                     Set<String> skipArtists, Set<String> likedIds) {
+                                     Set<String> skipArtists, Set<String> likedIds,
+                                     String currentTrackId) {
         List<Track> pool = new ArrayList<>();
         if (candidates != null) {
-            pool.addAll(candidates);
+            Set<String> seenIds = new HashSet<>();
+            for (Track t : candidates) {
+                if (t.id == null) continue;
+                // Deduplicate by stable track ID — never insert the same track twice.
+                if (!seenIds.add(t.id)) continue;
+                // Exclude the currently playing track so it is not immediately
+                // recommended as a "next" pick.
+                if (currentTrackId != null && t.id.equals(currentTrackId)) continue;
+                pool.add(t);
+            }
         }
         if (pool.isEmpty()) {
             return pool;
@@ -89,18 +102,44 @@ public final class SmartShuffleEngine {
 
         while (!pool.isEmpty()) {
             Track chosen;
-            // Discovery picks wander deliberately (uniform), everything else is
-            // weighted by score — the best-scoring track does NOT always win.
+            // Deterministic diversity guard: never extend a same-artist or
+            // same-album run to three consecutive slots while other candidates
+            // exist. Weighted randomness still decides everything else.
+            String lastArtist = out.isEmpty() ? null : norm(out.get(out.size() - 1).artists);
+            String lastAlbum = out.isEmpty() ? null : norm(out.get(out.size() - 1).album);
+            String prevArtist = out.size() >= 2 ? norm(out.get(out.size() - 2).artists) : null;
+            String prevAlbum = out.size() >= 2 ? norm(out.get(out.size() - 2).album) : null;
+            boolean artistRun = prevArtist != null && prevArtist.equals(lastArtist);
+            boolean albumRun = prevAlbum != null && prevAlbum.equals(lastAlbum);
+
             if (discovery > 0 && random.nextDouble() < discovery) {
                 chosen = pool.remove(random.nextInt(pool.size()));
             } else {
                 double[] weights = new double[pool.size()];
                 double total = 0;
                 for (int i = 0; i < pool.size(); i++) {
-                    double w = score(pool.get(i), ctx, recentTracks, recentArtists, recentAlbums,
+                    Track t = pool.get(i);
+                    double w = score(t, ctx, recentTracks, recentArtists, recentAlbums,
                             inArtists, inAlbums, skipped, liked, out.size());
-                    weights[i] = Math.max(0.0001, w);
+                    if (artistRun && norm(t.artists).equals(lastArtist)) {
+                        w = 0; // would make three same-artist slots in a row
+                    }
+                    if (albumRun && norm(t.album).equals(lastAlbum)) {
+                        w = 0; // would make three same-album slots in a row
+                    }
+                    weights[i] = Math.max(0, w);
                     total += weights[i];
+                }
+                if (total <= 0) {
+                    // Guard would remove every candidate (pool is one artist /
+                    // one album): keep scoring without the guard.
+                    total = 0;
+                    for (int i = 0; i < pool.size(); i++) {
+                        double w = score(pool.get(i), ctx, recentTracks, recentArtists, recentAlbums,
+                                inArtists, inAlbums, skipped, liked, out.size());
+                        weights[i] = Math.max(0.0001, w);
+                        total += weights[i];
+                    }
                 }
                 chosen = pool.remove(pick(weights, total));
             }
@@ -144,8 +183,12 @@ public final class SmartShuffleEngine {
         }
         double seedArtist = artist.equals(norm(ctx.seedArtist)) ? 0.20 : 0;
         double seedAlbum = album.equals(norm(ctx.seedAlbum)) ? 0.12 : 0;
+        // Genre/keyword affinity: shared significant album tokens between the
+        // seed and the candidate hint at a shared scene/genre. Small ranking
+        // nudge — never a hard filter.
+        double genre = 0.06 * Math.min(3, keywordOverlap(album, norm(ctx.seedAlbum)));
         double like = likedIds.contains(t.id) ? 0.12 : 0;
-        double relevance = Math.min(1.0, 0.45 * mood + seedArtist + seedAlbum + like + 0.15);
+        double relevance = Math.min(1.0, 0.45 * mood + seedArtist + seedAlbum + genre + like + 0.15);
 
         // Anti-repetition penalties.
         double penalty = 0;
@@ -182,6 +225,31 @@ public final class SmartShuffleEngine {
 
     private static void dec(Map<String, Integer> map, String key) {
         map.computeIfPresent(key, (k, v) -> v > 1 ? v - 1 : null);
+    }
+
+    /** Generic words that must never count as genre/album affinity. */
+    private static final Set<String> GENERIC_TOKENS = new HashSet<>(Arrays.asList(
+            "album", "albums", "vol", "volume", "edition", "deluxe", "version",
+            "remastered", "best", "greatest", "hits", "collection", "singles", "the"));
+
+    /** Count of shared significant words (>= 4 chars) between two normalized strings. */
+    private static int keywordOverlap(String a, String b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+            return 0;
+        }
+        Set<String> wa = new HashSet<>();
+        for (String w : a.split(" ")) {
+            if (w.length() >= 4 && !GENERIC_TOKENS.contains(w)) {
+                wa.add(w);
+            }
+        }
+        int hits = 0;
+        for (String w : b.split(" ")) {
+            if (w.length() >= 4 && !GENERIC_TOKENS.contains(w) && wa.contains(w)) {
+                hits++;
+            }
+        }
+        return hits;
     }
 
     private static String norm(String raw) {

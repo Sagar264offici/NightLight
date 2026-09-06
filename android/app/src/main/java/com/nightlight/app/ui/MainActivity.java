@@ -165,6 +165,8 @@ public final class MainActivity extends AppCompatActivity {
         ((BottomNavigationView) findViewById(R.id.bottom_nav)).setSelectedItemId(R.id.nav_library);
     }
 
+    private String miniLoadedId;
+
     private void onPlaybackChanged(PlaybackSnapshot snapshot) {
         boolean visible = snapshot.hasQueue && snapshot.current != null;
         miniPlayer.setVisibility(visible ? View.VISIBLE : View.GONE);
@@ -172,6 +174,8 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         Track track = snapshot.current;
+        boolean trackChanged = !track.id.equals(miniLoadedId);
+        miniLoadedId = track.id;
         miniTitle.setText(track.name);
         miniArtist.setText(track.artists.isEmpty() ? "Unknown artist" : track.artists);
         miniPlayPause.setImageResource(snapshot.isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
@@ -183,6 +187,14 @@ public final class MainActivity extends AppCompatActivity {
                     .override(120, 120)
                     .centerCrop()
                     .into(miniArtwork);
+        }
+        if (trackChanged) {
+            // Track-change crossfade (spec 32): artwork + text fade in instead
+            // of an instant swap.
+            miniArtwork.setAlpha(0f);
+            miniArtwork.animate().alpha(1f).setDuration(260).start();
+            miniTitle.setAlpha(0.3f);
+            miniTitle.animate().alpha(1f).setDuration(300).start();
         }
     }
 

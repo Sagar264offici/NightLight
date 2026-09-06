@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.MainThread;
+import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
@@ -33,11 +34,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The single source of truth for playback state. UI never reads ExoPlayer
  * directly: it observes {@link PlaybackSnapshot} delivered through
  * {@link Listener#onPlaybackChanged}. Everything here runs on the main thread.
+ *
+ * Smart Shuffle uses an authoritative curated queue: Media3 shuffle is
+ * disabled so our order is respected, and a generation counter protects
+ * against stale radio responses contaminating the active queue.
  */
 @OptIn(markerClass = UnstableApi.class)
 public final class PlaybackManager {
@@ -68,11 +74,46 @@ public final class PlaybackManager {
     /** Guards against stacking radio requests (auto-next / shuffle top-up). */
     private boolean radioBusy;
 
-    /** This session's recent tracks (feeds the Smart Shuffle engine). */
+    /**
+     * Monotonically increasing counter. Every time Smart Shuffle is activated
+     * or the user manually changes tracks, this is bumped so in-flight radio
+     * responses for older seeds are discarded instead of mutating the queue.
+     */
+    private final AtomicInteger smartGeneration = new AtomicInteger(0);
+
+    /** Seed track id of the most recent radio request (for validation). */
+    private String lastRadioSeedId;
+
+    /** Media id of the last item a transition was accepted for (double-advance guard). */
+    private String lastTransitionId;
+
+    /**
+     * This session's recent tracks (feeds the Smart Shuffle engine).
+     * Bounded at {@link #MAX_SESSION_RECENT}.
+     */
     private final List<Track> sessionRecent = new ArrayList<>();
-    /** Artists the listener skipped this session (weak negative signal). */
+    private static final int MAX_SESSION_RECENT = 24;
+
+    /**
+     * Artists the listener skipped this session (weak negative signal).
+     * Bounded at {@link #MAX_SESSION_SKIPS}.
+     */
     private final Set<String> sessionSkips = new HashSet<>();
+    private static final int MAX_SESSION_SKIPS = 24;
+
     private long currentTrackStartedAt;
+
+    /** Debounce window for the next() action (one tap = one track). */
+    private static final long NEXT_DEBOUNCE_MS = 350;
+    private long lastNextAt;
+
+    /**
+     * When remaining upcoming tracks fall below this threshold and Smart
+     * Shuffle is active, a proactive radio top-up is triggered so playback
+     * never stutters from an empty queue.
+     */
+    private static final int PROACTIVE_TOPUP_THRESHOLD = 6;
+
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
@@ -141,9 +182,19 @@ public final class PlaybackManager {
             }
 
             @Override
-            public void onMediaItemTransition(@androidx.annotation.Nullable MediaItem mediaItem, int reason) {
+            public void onMediaItemTransition(@Nullable MediaItem mediaItem, int reason) {
+                // Race hardening: when the item actually changes (manual next,
+                // auto-advance, seekToIndex), bump the generation so in-flight
+                // radio responses for the previous seed can never mutate the
+                // queue around the new track — even while still buffering.
+                String newId = mediaItem != null ? mediaItem.mediaId : null;
+                if (newId != null && !newId.equals(lastTransitionId)) {
+                    lastTransitionId = newId;
+                    smartGeneration.incrementAndGet();
+                }
                 recordedTrackId = null;
                 handleTrackStart();
+                checkProactiveTopUp();
                 publish(true);
             }
 
@@ -221,9 +272,13 @@ public final class PlaybackManager {
         if (controller == null || tracks == null || tracks.isEmpty()) {
             return;
         }
+        // Deduplicate by stable track ID before insertion — never add the same
+        // track twice to the queue.
+        Set<String> existingIds = existingQueueIds();
         List<MediaItem> items = new ArrayList<>();
         for (Track track : tracks) {
-            if (track.streamUrl != null) {
+            if (track.streamUrl != null && !existingIds.contains(track.id)) {
+                existingIds.add(track.id);
                 items.add(toMediaItem(track));
             }
         }
@@ -264,6 +319,14 @@ public final class PlaybackManager {
         if (controller == null) {
             return;
         }
+        // One tap = exactly one track (spec: a single NEXT must never skip
+        // A → C). The guard window also swallows a duplicated transport event,
+        // while staying short enough to feel instant.
+        long now = System.currentTimeMillis();
+        if (now - lastNextAt < NEXT_DEBOUNCE_MS) {
+            return;
+        }
+        lastNextAt = now;
         // Skipping a track within its first 30s is a weak negative signal for
         // the current artist — Smart Shuffle lowers their ranking this session.
         if (controller.isPlaying()
@@ -271,7 +334,7 @@ public final class PlaybackManager {
             Track t = currentTrack();
             if (t != null && t.artists != null && !t.artists.isEmpty()) {
                 sessionSkips.add(t.artists);
-                if (sessionSkips.size() > 24) {
+                if (sessionSkips.size() > MAX_SESSION_SKIPS) {
                     sessionSkips.clear();
                 }
             }
@@ -336,65 +399,120 @@ public final class PlaybackManager {
         String mode = ShufflePrefs.cycle(app);
         applyShuffleMode(mode);
         return mode;
-    }    /** Applies a stored shuffle preference (used on startup / settings change). */
+    }
+
+    /**
+     * Applies a stored shuffle preference (used on startup / settings change).
+     *
+     * Key Smart Shuffle contract:
+     * 1. Media3 shuffle is disabled — our curated order is authoritative.
+     * 2. The queue is immediately re-ordered using SmartShuffleEngine so the
+     *    toggle is visually instant.
+     * 3. A radio top-up is fetched in the background and appended when ready.
+     * 4. A generation counter is bumped so stale responses are discarded.
+     */
     public void applyShuffleMode(String mode) {
         if (controller == null) {
             return;
         }
         if (ShufflePrefs.NORMAL.equals(mode)) {
             controller.setShuffleModeEnabled(true);
+            // Leaving Smart mode: bump generation so any in-flight radio
+            // responses for the old smart queue are discarded.
+            smartGeneration.incrementAndGet();
         } else {
             controller.setShuffleModeEnabled(false);
             if (ShufflePrefs.SMART.equals(mode)) {
-                // Respond instantly: reshuffle the tracks already in the queue
-                // so the toggle visibly reorders music right away. The radio
-                // top-up is fetched in the background and mixed in when ready.
-                shuffleCurrentQueue();
-                if (!com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
-                    Track seed = currentTrack();
-                    if (seed != null && controller.getMediaItemCount() > 0) {
-                        fetchRadio(seed, 24, true);
-                    }
+                // Entering Smart mode: bump generation to invalidate old requests.
+                int gen = smartGeneration.incrementAndGet();
+                // Immediately curate the existing queue so the toggle is visible.
+                curateSmartQueue(gen);
+                // Fetch radio candidates in the background.
+                Track seed = currentTrack();
+                if (seed != null && controller.getMediaItemCount() > 0) {
+                    fetchRadio(seed, 24, true, gen);
                 }
             }
         }
-
         publish(true);
     }
 
     /**
-     * Randomly reorders the queued tracks without interrupting playback: the
-     * whole queue is rebuilt in shuffled order and the playing position is
-     * restored, so audio never skips or restarts.
+     * Immediately reorders the current Media3 queue using SmartShuffleEngine
+     * instead of a dumb random shuffle. The currently playing track stays at
+     * index 0 (preserving playback), and all other tracks are scored and
+     * re-ordered with context, mood, diversity, and skip penalties.
+     *
+     * This makes the Smart Shuffle toggle visually instant — the user sees
+     * the queue change immediately.
      */
-    private void shuffleCurrentQueue() {
+    private void curateSmartQueue(int generation) {
         if (controller == null || controller.getMediaItemCount() < 2) {
             return;
         }
-        int current = controller.getCurrentMediaItemIndex();
         long position = controller.getCurrentPosition();
         boolean playing = controller.isPlaying();
-        List<androidx.media3.common.MediaItem> items = new ArrayList<>();
+
+        // Resolve the seed from the CURRENT item first, then collect the rest of
+        // the queue. The seed is removed by IDENTITY (object or stable id) —
+        // never by a re-derived index, which null-tag items would shift onto the
+        // wrong song.
+        Track currentTagged = currentTrack();
+        MediaItem currentItem = controller.getCurrentMediaItem();
+        Track seed = currentTagged;
+        if (seed == null && currentItem != null) {
+            seed = trackFromMetadata(currentItem.mediaMetadata, currentItem.mediaId);
+        }
+        if (seed == null) {
+            return;
+        }
+        List<Track> allTracks = new ArrayList<>();
         for (int i = 0; i < controller.getMediaItemCount(); i++) {
-            items.add(controller.getMediaItemAt(i));
-        }
-        List<Integer> order = new java.util.ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            order.add(i);
-        }
-        java.util.Collections.shuffle(order);
-        List<androidx.media3.common.MediaItem> shuffled = new ArrayList<>();
-        int newCurrent = 0;
-        for (int i = 0; i < order.size(); i++) {
-            shuffled.add(items.get(order.get(i)));
-            if (order.get(i) == current) {
-                newCurrent = i;
+            MediaItem item = controller.getMediaItemAt(i);
+            Track t = item.localConfiguration != null ? (Track) item.localConfiguration.tag : null;
+            if (t == null) {
+                t = trackFromMetadata(item.mediaMetadata, item.mediaId);
             }
+            if (t == null) {
+                continue;
+            }
+            if (t == currentTagged || t.id.equals(seed.id)) {
+                continue; // seed itself is never re-queued
+            }
+            allTracks.add(t);
         }
-        controller.setMediaItems(shuffled, newCurrent, position);
+        if (allTracks.isEmpty()) {
+            return;
+        }
+
+        // Run remaining tracks through SmartShuffleEngine for intelligent ordering.
+        NightLightApp nightLight = (NightLightApp) app.getApplicationContext();
+        SmartShuffleEngine engine = new SmartShuffleEngine();
+        LibraryRepository library = nightLight.getLibraryRepository();
+        List<Track> curated = engine.generateQueue(
+                seed, allTracks, new ArrayList<>(sessionRecent),
+                MoodPrefs.active(app.getApplicationContext()),
+                ShufflePrefs.discoveryRatio(app.getApplicationContext()),
+                new HashSet<>(sessionSkips),
+                library.likedIds(),
+                seed.id);
+
+        // Verify generation hasn't changed (user may have toggled away rapidly).
+        if (generation != smartGeneration.get()) {
+            return;
+        }
+
+        // Rebuild the queue: seed first, then curated order.
+        List<MediaItem> rebuilt = new ArrayList<>();
+        rebuilt.add(toMediaItem(seed));
+        for (Track t : curated) {
+            rebuilt.add(toMediaItem(t));
+        }
+        controller.setMediaItems(rebuilt, 0, position);
         if (playing) {
             controller.play();
         }
+        Log.i(TAG, "smart queue curated " + allTracks.size() + " tracks into " + curated.size());
     }
 
     // ---- Radio ----
@@ -416,9 +534,15 @@ public final class PlaybackManager {
     /**
      * When the queue runs out (repeat off) the player keeps going with a fresh
      * batch of related songs seeded by the track that just finished.
+     * Only radios in Smart mode; Off mode stops at queue end; Normal uses
+     * Media3's own shuffle/loop.
      */
     private void radioContinue() {
         if (controller == null || radioBusy) {
+            return;
+        }
+        // Off mode: no radio, no auto-continue.
+        if (ShufflePrefs.isOff(app.getApplicationContext())) {
             return;
         }
         if (com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
@@ -431,24 +555,80 @@ public final class PlaybackManager {
         if (seed == null) {
             return;
         }
+        int gen = smartGeneration.get();
         // Give the UI a moment to surface the ended state, then continue.
-        main.postDelayed(() -> fetchRadio(seed, 30, false), 400);
+        main.postDelayed(() -> fetchRadio(seed, 30, false, gen), 400);
+    }
+
+    /**
+     * Proactively tops up the queue when remaining upcoming tracks are running
+     * low. This prevents the player from stuttering or showing an empty queue
+     * while waiting for the next radio batch.
+     */
+    private void checkProactiveTopUp() {
+        if (controller == null || radioBusy) {
+            return;
+        }
+        if (!ShufflePrefs.isSmart(app.getApplicationContext())) {
+            return;
+        }
+        if (com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
+            return;
+        }
+        if (controller.getRepeatMode() != Player.REPEAT_MODE_OFF) {
+            return;
+        }
+        int remaining = controller.getMediaItemCount() - controller.getCurrentMediaItemIndex() - 1;
+        if (remaining > PROACTIVE_TOPUP_THRESHOLD) {
+            return;
+        }
+        Track seed = currentTrack();
+        if (seed == null) {
+            return;
+        }
+        int gen = smartGeneration.get();
+        Log.i(TAG, "smart proactive top-up: " + remaining + " tracks remaining");
+        fetchRadio(seed, 24, true, gen);
     }
 
     /**
      * Fetches a related-song batch. append=true adds it behind the current
      * queue (shuffle mixing); append=false replaces the exhausted queue and
-     * starts playing (auto-continue).
+     * starts playing (auto-continue). Transient failures (e.g. a cold-start
+     * timeout against the server) are retried once after a short delay so a
+     * flaky first request doesn't leave shuffle/auto-next dead.
+     *
+     * Every request carries a generation token. If the user toggles modes or
+     * changes tracks while the request is in-flight, the generation will have
+     * changed and the stale response is silently discarded.
      */
-    private void fetchRadio(Track seed, int limit, boolean append) {
+    private void fetchRadio(Track seed, int limit, boolean append, int generation) {
+        fetchRadio(seed, limit, append, generation, 0);
+    }
+
+    private void fetchRadio(Track seed, int limit, boolean append, int generation, int attempt) {
         if (radioBusy) {
             return;
         }
         NightLightApp nightLight = (NightLightApp) app.getApplicationContext();
         radioBusy = true;
-        nightLight.getMusicRepository().fetchRadio(seed, limit, new MusicRepository.SearchCallback() {
+        lastRadioSeedId = seed.id;
+        // append=true requests may be served from the short-lived cache;
+        // auto-continue (append=false) must always hit the network.
+        nightLight.getMusicRepository().fetchRadio(seed, limit, append, new MusicRepository.SearchCallback() {
             @Override
             public void onSuccess(List<Track> tracks, int total, int page) {
+                // Race protection: discard unless BOTH the generation token and
+                // the seed are still current. A stale response for song A must
+                // never mutate the queue now built around song B.
+                String requestSeed = lastRadioSeedId;
+                if (generation != smartGeneration.get()
+                        || requestSeed == null || !requestSeed.equals(seed.id)) {
+                    radioBusy = false;
+                    Log.i(TAG, "radio stale (gen " + generation + " != " + smartGeneration.get()
+                            + " or seed " + requestSeed + " != " + seed.id + "), discarding");
+                    return;
+                }
                 radioBusy = false;
                 if (tracks.isEmpty() || controller == null) {
                     return;
@@ -459,21 +639,29 @@ public final class PlaybackManager {
                     // current context (mood, recent plays, skips, likes) using
                     // weighted random selection with artist/album diversity.
                     SmartShuffleEngine engine = new SmartShuffleEngine();
-                    LibraryRepository library = ((NightLightApp) app.getApplicationContext())
-                            .getLibraryRepository();
+                    LibraryRepository library = nightLight.getLibraryRepository();
                     curated = engine.generateQueue(
                             seed, tracks, new ArrayList<>(sessionRecent),
                             MoodPrefs.active(app.getApplicationContext()),
                             ShufflePrefs.discoveryRatio(app.getApplicationContext()),
                             new HashSet<>(sessionSkips),
-                            library.likedIds());
+                            library.likedIds(),
+                            controller.getCurrentMediaItem() != null
+                                    ? (controller.getCurrentMediaItem().localConfiguration != null
+                                    && controller.getCurrentMediaItem().localConfiguration.tag instanceof Track)
+                                    ? ((Track) controller.getCurrentMediaItem().localConfiguration.tag).id
+                                    : controller.getCurrentMediaItem().mediaId
+                                    : null);
                     Log.i(TAG, "smart shuffle curated " + tracks.size() + " -> " + curated.size());
                 }
                 if (append) {
-                    Log.i(TAG, "radio top-up -> " + curated.size() + " related tracks");
                     addToQueue(curated);
+                    Log.i(TAG, "smart queue: seed=" + seed.id + " candidates=" + tracks.size()
+                            + " curated=" + curated.size() + " queueSize=" + controller.getMediaItemCount()
+                            + " next=" + nextArtists(curated, 3));
                 } else {
-                    Log.i(TAG, "radio continue -> " + curated.size() + " related tracks after queue end");
+                    Log.i(TAG, "radio continue: seed=" + seed.id + " curated=" + curated.size()
+                            + " next=" + nextArtists(curated, 3));
                     if (controller.getPlaybackState() == Player.STATE_ENDED) {
                         playTracks(curated, 0);
                     }
@@ -483,8 +671,30 @@ public final class PlaybackManager {
             @Override
             public void onFailure(Throwable error) {
                 radioBusy = false;
+                if (attempt == 0) {
+                    Log.w(TAG, "radio fetch failed (" + error + "); retrying once");
+                    main.postDelayed(() -> fetchRadio(seed, limit, append, generation, 1), 3000);
+                } else {
+                    Log.w(TAG, "radio fetch failed after retry: " + error);
+                }
             }
         });
+    }
+
+    /**
+     * Concise, secret-free curation record: the first artists the queue will
+     * actually play. Never logs URLs, tokens, or credentials.
+     */
+    private static String nextArtists(List<Track> tracks, int n) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < tracks.size() && i < n; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            String a = tracks.get(i).artists;
+            sb.append(a != null && a.length() > 24 ? a.substring(0, 24) : a);
+        }
+        return sb.append(']').toString();
     }
 
     public void clearQueue() {
@@ -524,6 +734,22 @@ public final class PlaybackManager {
 
     // ---- Internals ----
 
+    /**
+     * Collects all track IDs currently in the Media3 queue. Used for
+     * deduplication before inserting new tracks.
+     */
+    private Set<String> existingQueueIds() {
+        Set<String> ids = new HashSet<>();
+        if (controller == null) {
+            return ids;
+        }
+        for (int i = 0; i < controller.getMediaItemCount(); i++) {
+            MediaItem item = controller.getMediaItemAt(i);
+            ids.add(item.mediaId);
+        }
+        return ids;
+    }
+
     private MediaItem toMediaItem(Track track) {
         MediaMetadata metadata = new MediaMetadata.Builder()
                 .setTitle(track.name)
@@ -558,8 +784,12 @@ public final class PlaybackManager {
         if (track != null && !track.id.equals(recordedTrackId)) {
             recordedTrackId = track.id;
             currentTrackStartedAt = System.currentTimeMillis();
+            // The seed changed: bump the generation so any in-flight radio
+            // response for the previous track is discarded instead of mutating
+            // the queue built around the new one.
+            smartGeneration.incrementAndGet();
             sessionRecent.add(track);
-            if (sessionRecent.size() > 24) {
+            if (sessionRecent.size() > MAX_SESSION_RECENT) {
                 sessionRecent.remove(0);
             }
             if (trackStartedListener != null) {

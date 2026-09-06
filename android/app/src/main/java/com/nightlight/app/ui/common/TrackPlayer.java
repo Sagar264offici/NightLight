@@ -28,7 +28,11 @@ public final class TrackPlayer {
     /**
      * Collapses near-duplicate variants of the same song (remix / acoustic /
      * slowed / live...) so shuffle and auto-next deliver variety instead of
-     * cycling versions of one track. Playlist queues are never touched.
+     * cycling versions of one track. The dedupe key combines the canonical
+     * title with the artist: different artists' recordings of the same title
+     * are distinct songs and must survive (e.g. a search can return many
+     * "Imagine" covers by different artists — collapsing them to one track
+     * leaves an empty-feeling queue). Playlist queues are never touched.
      */
     public static List<Track> dedupeVariants(List<Track> tracks) {
         if (tracks == null || tracks.size() < 2) {
@@ -38,7 +42,8 @@ public final class TrackPlayer {
         Set<String> keys = new HashSet<>();
         for (Track t : tracks) {
             String canon = canonicalTitle(t.name);
-            String key = canon.isEmpty() ? t.id : canon;
+            String artist = t.artists != null ? t.artists.toLowerCase().trim() : "";
+            String key = canon.isEmpty() ? t.id : canon + "|" + artist;
             if (keys.add(key)) {
                 out.add(t);
             }

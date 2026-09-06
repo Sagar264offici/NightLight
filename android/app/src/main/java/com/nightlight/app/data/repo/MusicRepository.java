@@ -13,7 +13,9 @@ import com.nightlight.app.domain.model.Track;
 import com.nightlight.app.util.AppExecutors;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -110,15 +112,19 @@ public final class MusicRepository {
     /**
      * Fetches a radio batch of OTHER songs related to the seed track. Used for
      * auto-next when a queue ends and for same-genre shuffle top-ups.
+     *
+     * @param useCache when true, a fresh short-lived cached batch for the same
+     *                 seed+limit may be served instead of hitting the network
+     *                 (smart-shuffle re-toggles); auto-continue passes false.
      */
-    public void fetchRadio(Track seed, int limit, SearchCallback callback) {
+    public void fetchRadio(Track seed, int limit, boolean useCache, SearchCallback callback) {
         if (seed == null || seed.id == null) {
             AppExecutors.onMain(() -> callback.onFailure(new IllegalStateException("No seed track")));
             return;
         }
-        // Serve repeat radio requests (e.g. re-toggling smart shuffle) from
-        // the short-lived cache while the network answer is still fresh.
-        if (seed.id.equals(cachedRadioSeed)
+        String cacheKey = seed.id + ":" + limit;
+        if (useCache
+                && cacheKey.equals(cachedRadioSeed)
                 && cachedRadioTracks != null
                 && !cachedRadioTracks.isEmpty()
                 && System.currentTimeMillis() - cachedRadioAt < RADIO_CACHE_TTL_MS) {
@@ -145,7 +151,7 @@ public final class MusicRepository {
                             }
                         }
                         if (radioCacheLock.compareAndSet(false, true)) {
-                            cachedRadioSeed = seed.id;
+                            cachedRadioSeed = cacheKey;
                             cachedRadioTracks = tracks;
                             cachedRadioAt = System.currentTimeMillis();
                             radioCacheLock.set(false);
@@ -208,7 +214,28 @@ public final class MusicRepository {
     }
 
     /** Synchronized lyrics for the current track (server-resolved). */
+    /**
+     * Lyrics cache keyed by STABLE TRACK ID (never title — two different songs
+     * can share a title). Bounded so a long session cannot accumulate unbounded
+     * entries; a track-change race is impossible because the key is the id the
+     * UI already filters on.
+     */
+    private final java.util.Map<String, LyricsDtos.LyricsDto> lyricsCache =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<String, LyricsDtos.LyricsDto>(32, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, LyricsDtos.LyricsDto> eldest) {
+                    return size() > 40;
+                }
+            });
+
     public void fetchLyrics(Track track, LyricsCallback callback) {
+        if (track != null && track.id != null) {
+            LyricsDtos.LyricsDto hit = lyricsCache.get(track.id);
+            if (hit != null) {
+                AppExecutors.onMain(() -> callback.onSuccess(hit));
+                return;
+            }
+        }
         api.getLyrics(track.name, track.artists, track.album, track.durationMs)
                 .enqueue(new Callback<ApiResponse<LyricsDtos.LyricsDto>>() {
                     @Override
@@ -219,6 +246,9 @@ public final class MusicRepository {
                             callback.onFailure(new HttpStatusException(response.code(),
                                     body != null ? body.code : null));
                             return;
+                        }
+                        if (track != null && track.id != null && body.data != null && body.data.available) {
+                            lyricsCache.put(track.id, body.data);
                         }
                         callback.onSuccess(body.data);
                     }

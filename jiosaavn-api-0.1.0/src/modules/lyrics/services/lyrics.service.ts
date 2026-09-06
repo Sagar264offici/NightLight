@@ -34,29 +34,48 @@ export class LyricsService {
   async fetchLyrics({ title, artist, album, durationMs }: LyricsArgs): Promise<LyricsResult> {
     const durationSec = durationMs ? Math.round(durationMs / 1000) : 0
 
-    let data: LrcLibEntry | null = null
-    try {
-      // Fast path: exact (album + duration) match.
-      const q = new URLSearchParams({
-        artist_name: artist || '',
-        track_name: title,
-        album_name: album || '',
-        duration: durationSec ? String(durationSec) : ''
-      })
-      const r = await fetch(`https://lrclib.net/api/get?${q.toString()}`, {
-        headers: { 'User-Agent': UA },
-        signal: AbortSignal.timeout(10_000)
-      })
-      if (r.ok) {
-        data = (await r.json()) as LrcLibEntry
-      }
-    } catch {
-      data = null
+    // Title variants: providers often fail on decorated JioSaavn titles like
+    // 'Song (From "Movie" )' or 'Song - Version' — the base recording usually
+    // exists in the provider under the cleaned title. Tried in order; first
+    // hit wins. Feature strings ('feat. X') are a separate fallback because
+    // the provider indexes the song under the primary artist only.
+    const base = stripDecoration(title)
+    const variants: string[] = [title]
+    if (base && base !== title) {
+      variants.push(base)
     }
+    const featless = artist.split(/,|\bfeat\.?\b|\bft\.?\b/i)[0]?.trim() ?? ''
+    const artistVariants = featless && featless !== artist ? [featless, artist] : [artist]
 
-    if (!data || (!data.syncedLyrics && !data.plainLyrics)) {
-      // Fallback: search by title + artist and pick the closest entry.
-      data = await this.searchLrcLib(title, artist, album || '', durationSec)
+    let data: LrcLibEntry | null = null
+    outer: for (const artistName of artistVariants) {
+      for (const t of variants) {
+        try {
+          // Fast path: exact (album + duration) match.
+          const q = new URLSearchParams({
+            artist_name: artistName || '',
+            track_name: t,
+            album_name: album || '',
+            duration: durationSec ? String(durationSec) : ''
+          })
+          const r = await fetch(`https://lrclib.net/api/get?${q.toString()}`, {
+            headers: { 'User-Agent': UA },
+            signal: AbortSignal.timeout(10_000)
+          })
+          if (r.ok) {
+            data = (await r.json()) as LrcLibEntry
+            if (data && (data.syncedLyrics || data.plainLyrics)) break outer
+          }
+        } catch {
+          // try the next variant
+        }
+
+        if (!data || (!data.syncedLyrics && !data.plainLyrics)) {
+          // Fallback: search by title + artist and pick the closest entry.
+          data = await this.searchLrcLib(t, artistName, album || '', durationSec)
+          if (data && (data.syncedLyrics || data.plainLyrics)) break outer
+        }
+      }
     }
 
     if (!data || (!data.syncedLyrics && !data.plainLyrics)) {
@@ -124,6 +143,22 @@ export class LyricsService {
       return null
     }
   }
+}
+
+/**
+ * Strips provider-hostile decorations from a title: '(From ...)', '[...]',
+ * trailing '- Version/Live/Remix' suffixes, and trailing feature credits.
+ * Keeps the base recording title the lyrics providers index under.
+ */
+function stripDecoration(raw: string): string {
+  return raw
+    .replace(/\s*\(\s*(from|feat|ft|with)[^)]*\)/gi, '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\s+-\s+[^-]*$/, ' ')
+    .replace(/,\s*(feat|ft)\.?[^,]*$/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function canon(raw: string): string {

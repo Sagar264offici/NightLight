@@ -70,8 +70,8 @@
                         android:layout_width="18dp"
                         android:layout_height="18dp"
                         android:contentDescription="@null"
-                        android:src="@drawable/ic_lyrics_sing"
-                        app:tint="@color/nightlight_cyan" />
+                        android:src="@drawable/ic_lyrics"
+                        app:tint="@color/nightlight_gold" />
 
                     <TextView
                         android:layout_width="wrap_content"

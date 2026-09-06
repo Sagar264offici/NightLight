@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Game HUD backdrop: deep at the top, dissolving toward the horizon. -->
+<!-- Gradient scrim: deep at the top, dissolving toward the horizon. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient

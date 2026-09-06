@@ -163,6 +163,72 @@ public class HomeViewModel extends AndroidViewModel {
 
     private boolean seedingForYou;
 
+    /**
+     * Rebuilds the "For You" row from the CURRENT mood/context: mood-first
+     * seed (matches the active mood via keyword affinity), else most recent
+     * listen, else trending. Radio supplies same-vibe candidates.
+     */
+    public void refreshForYou() {
+        List<Track> recent = recentLiveData.getValue();
+        List<Track> trending = trendingSongs.getValue();
+        String mood = com.nightlight.app.util.MoodPrefs.active(getApplication());
+        Track seed = pickMoodSeed(recent, trending, mood);
+        if (seed == null) {
+            seed = pickMoodSeed(trending, trending, mood);
+        }
+        if (seed == null && recent != null && !recent.isEmpty()) {
+            seed = recent.get(0);
+        }
+        if (seed == null && trending != null && !trending.isEmpty()) {
+            seed = trending.get(0);
+        }
+        if (seed == null) {
+            seedingForYou = false;
+            return;
+        }
+        final Track fseed = seed;
+        music.fetchRadio(fseed, 15, false, new MusicRepository.SearchCallback() {
+            @Override
+            public void onSuccess(List<Track> tracks, int total, int page) {
+                seedingForYou = false;
+                if (tracks != null && !tracks.isEmpty()) {
+                    forYouTracks.postValue(tracks);
+                }
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                seedingForYou = false;
+                // Row keeps showing whatever it had; Home stays functional.
+            }
+        });
+    }
+
+    /** First track whose title/artist/album matches the mood keywords. */
+    private static Track pickMoodSeed(List<Track> pool, List<Track> fallbackPool, String mood) {
+        if (mood == null) {
+            return (fallbackPool != null && !fallbackPool.isEmpty()) ? fallbackPool.get(0) : null;
+        }
+        if (pool == null) {
+            return null;
+        }
+        String[] kws = com.nightlight.app.smartshuffle.ListeningContext.KEYWORDS.get(mood);
+        if (kws == null) {
+            return (fallbackPool != null && !fallbackPool.isEmpty()) ? fallbackPool.get(0) : null;
+        }
+        for (Track t : pool) {
+            String hay = ((t.name != null ? t.name : "") + " "
+                    + (t.artists != null ? t.artists : "") + " "
+                    + (t.album != null ? t.album : "")).toLowerCase();
+            for (String kw : kws) {
+                if (hay.contains(kw)) {
+                    return t;
+                }
+            }
+        }
+        return null;
+    }
+
     /** Seeds the "For you" row from a track the user actually listens to. */
     private void seedForYou() {
         List<Track> existing = forYouTracks.getValue();
@@ -185,7 +251,7 @@ public class HomeViewModel extends AndroidViewModel {
             seedingForYou = false; // allow a later retry once data arrives
             return;
         }
-        music.fetchRadio(seed, 15, new MusicRepository.SearchCallback() {
+        music.fetchRadio(seed, 15, false, new MusicRepository.SearchCallback() {
             @Override
             public void onSuccess(List<Track> tracks, int total, int page) {
                 seedingForYou = false;
@@ -209,11 +275,15 @@ public class HomeViewModel extends AndroidViewModel {
         forYouSubtitle.postValue(env.subtitle);
     }
 
-    /** User picked a mood chip: persist + refresh context immediately. */
+    /** User picked a mood chip: persist + refresh context + re-rank now. */
     public void selectMood(String mood) {
         com.nightlight.app.util.MoodPrefs.set(getApplication(), mood);
         publishContext();
         refreshContext();
+        // Immediate visible re-rank: rebuild "For You" around the new mood
+        // (spec 11/12 — no restart, no spinner; current content stays until
+        // the fresh batch arrives).
+        refreshForYou();
     }
 
     public void clearMood() {

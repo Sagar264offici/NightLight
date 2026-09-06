@@ -195,16 +195,23 @@ public final class HomeFragment extends Fragment {
             int padV = Math.round(8f * getResources().getDisplayMetrics().density);
             chipView.setPadding(padH, padV, padH, padV);
             chipView.setOnClickListener(v -> {
-                boolean wasActive = moodKey.equals(MoodPrefs.active(requireContext()));
-                if (wasActive) {
-                    viewModel.clearMood();
-                } else {
-                    viewModel.selectMood(moodKey);
-                }
-                moodRow.removeAllViews();
-                moodsRendered = false;
-                renderMoodChips();
+                // Mood chip press animation (spec 34): quick press-in, then the
+                // selection state rebuilds with the new chip highlighted.
+                v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(90)
+                        .withEndAction(() -> {
+                            boolean wasActive = moodKey.equals(MoodPrefs.active(requireContext()));
+                            if (wasActive) {
+                                viewModel.clearMood();
+                            } else {
+                                viewModel.selectMood(moodKey);
+                            }
+                            moodRow.removeAllViews();
+                            moodsRendered = false;
+                            renderMoodChips();
+                        }).start();
             });
+            chipView.setAlpha(0f);
+            chipView.animate().alpha(1f).setDuration(160).start();
             moodRow.addView(chipView);
         }
     }

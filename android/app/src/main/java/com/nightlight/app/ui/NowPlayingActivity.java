@@ -51,7 +51,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
     private boolean artworkSized;
     private int artworkPx = 900;
     private String loadedArtworkId;
-    private android.animation.ObjectAnimator ringAnimator;
+    private com.nightlight.app.util.AmbientAnimator ambient;
+    private String ambientKey;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +80,21 @@ public final class NowPlayingActivity extends AppCompatActivity {
         likeIcon = findViewById(R.id.np_like_icon);
         ImageButton queueIcon = findViewById(R.id.np_queue_icon);
         View lyricsBox = findViewById(R.id.np_lyrics);
+
+        // Lyrics icon: state-list tint (cream normal, gold pressed/active, muted disabled).
+        // Applied in code so pressed/active branches animate at runtime, not just XML default.
+        ImageButton lyricsIcon = findViewById(R.id.np_lyrics_icon);
+        lyricsIcon.setImageTintList(android.content.res.ColorStateList.valueOf(
+                ContextCompat.getColor(this, R.color.nightlight_cream)));
+        lyricsIcon.setOnTouchListener((v, ev) -> {
+            if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                lyricsIcon.setColorFilter(ContextCompat.getColor(this, R.color.nightlight_gold));
+            } else if (ev.getAction() == android.view.MotionEvent.ACTION_UP
+                    || ev.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
+                lyricsIcon.setColorFilter(ContextCompat.getColor(this, R.color.nightlight_cream));
+            }
+            return false; // never consume - parent box handles the click
+        });
 
         findViewById(R.id.np_back).setOnClickListener(v -> finish());
         lyricsBox.setOnClickListener(v ->
@@ -148,6 +164,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
         viewModel.onStart();
         viewModel.getSnapshot().observe(this, snapshotObserver);
         viewModel.getLikedIds().observe(this, likesObserver);
+        // Shuffle state always re-syncs from the persisted preference when the
+        // screen becomes visible — no stale icon from a previous session.
+        renderShuffleMode(com.nightlight.app.util.ShufflePrefs.mode(this));
+        startAmbient();
     }
 
     @Override
@@ -156,6 +176,32 @@ public final class NowPlayingActivity extends AppCompatActivity {
         viewModel.onStop();
         viewModel.getSnapshot().removeObserver(snapshotObserver);
         viewModel.getLikedIds().removeObserver(likesObserver);
+        stopAmbient();
+    }
+
+    /**
+     * Starts the ambient motion system for the current power mode. Rebuilt only
+     * when mode/playing-state actually changes (render() runs every tick).
+     */
+    private void startAmbient() {
+        String mode = com.nightlight.app.util.PowerModes.get(this);
+        PlaybackSnapshot s = viewModel.getSnapshot().getValue();
+        boolean playing = s != null && s.isPlaying;
+        String key = mode + ":" + playing;
+        if (key.equals(ambientKey) && ambient != null) {
+            return;
+        }
+        ambientKey = key;
+        stopAmbient();
+        ambient = com.nightlight.app.util.AmbientAnimator.forNowPlaying(mode, artwork, backdrop, artworkRing);
+        ambient.start();
+    }
+
+    private void stopAmbient() {
+        if (ambient != null) {
+            ambient.stop();
+            ambient = null;
+        }
     }
 
     private void render(PlaybackSnapshot s) {
@@ -172,8 +218,16 @@ public final class NowPlayingActivity extends AppCompatActivity {
         if (track.imageUrl != null && !track.imageUrl.isEmpty()) {
             if (!track.id.equals(loadedArtworkId)) {
                 loadedArtworkId = track.id;
+                // Track transition: artwork + backdrop fade in, metadata
+                // follows — no instant swap, no layout jump.
                 artwork.setAlpha(0f);
                 backdrop.setAlpha(0f);
+                title.setAlpha(0f);
+                artist.setAlpha(0f);
+                title.animate().alpha(1f).setDuration(340).setStartDelay(70).start();
+                artist.animate().alpha(1f).setDuration(340).setStartDelay(130).start();
+                com.nightlight.app.util.AmbientAnimator.enter(artworkStage,
+                        com.nightlight.app.util.PowerModes.get(this));
             }
             int corner = Math.round(22f * getResources().getDisplayMetrics().density);
             Glide.with(this)
@@ -208,20 +262,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
     }
 
     /**
-     * Shuffle states: OFF dim, NORMAL gold, SMART gold with the smart glyph.
-     */
-    private void renderShuffleMode(String mode) {
-        boolean smart = "smart".equals(mode);
-        boolean normal = "normal".equals(mode);
-        shuffle.setImageResource(smart ? R.drawable.ic_shuffle_smart : R.drawable.ic_shuffle);
-        shuffle.setColorFilter(ContextCompat.getColor(this,
-                (smart || normal) ? R.color.nightlight_gold : R.color.nightlight_cream_dim));
-    }
-
-    /**
      * Tunes visuals to the experience mode: Low = quieter atmosphere, Balanced
-     * the default cinematic look, High adds a slow breathing glow while music
-     * plays.
+     * the default cinematic look, High adds the full ambient motion system.
      */
     private void applyPowerMode(boolean playing) {
         String mode = com.nightlight.app.util.PowerModes.get(this);
@@ -232,22 +274,28 @@ public final class NowPlayingActivity extends AppCompatActivity {
             ensureArtworkSize();
         }
         backdrop.setAlpha("low".equals(mode) ? 0.30f : 0.52f);
-        boolean wantGlow = playing && "high".equals(mode);
-        if (wantGlow == (ringAnimator != null && ringAnimator.isStarted())) {
-            return;
-        }
-        if (ringAnimator != null) {
-            ringAnimator.cancel();
-            ringAnimator = null;
-        }
-        if (wantGlow) {
-            ringAnimator = android.animation.ObjectAnimator.ofFloat(artworkRing, "alpha", 0.4f, 1f);
-            ringAnimator.setDuration(1800);
-            ringAnimator.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-            ringAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-            ringAnimator.start();
-        } else {
-            artworkRing.setAlpha(1f);
+        startAmbient();
+    }
+
+    /**
+     * Shuffle states: OFF neutral, NORMAL gold, SMART gold + smart glyph +
+     * label badge. Reads the persisted preference; the player contract is
+     * applyShuffleMode() → publish() → this render, so UI and Media3 agree.
+     */
+    private void renderShuffleMode(String mode) {
+        boolean smart = "smart".equals(mode);
+        boolean normal = "normal".equals(mode);
+        shuffle.setImageResource(smart ? R.drawable.ic_shuffle_smart : R.drawable.ic_shuffle);
+        shuffle.setColorFilter(ContextCompat.getColor(this,
+                (smart || normal) ? R.color.nightlight_gold : R.color.nightlight_cream_dim));
+        shuffle.setContentDescription(smart ? getString(R.string.shuffle_smart_label)
+                : normal ? getString(R.string.shuffle_normal_label)
+                : getString(R.string.shuffle_off_label));
+        TextView label = findViewById(R.id.np_shuffle_label);
+        if (label != null) {
+            label.setText(smart ? "SMART" : normal ? "SHUFFLE" : "OFF");
+            label.setTextColor(ContextCompat.getColor(this,
+                    (smart || normal) ? R.color.nightlight_gold : R.color.nightlight_cream_dim));
         }
     }
 

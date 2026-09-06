@@ -175,15 +175,31 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageButton
-                    android:id="@+id/np_shuffle"
-                    android:layout_width="@dimen/control_button"
-                    android:layout_height="@dimen/control_button"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/action_shuffle"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_shuffle"
-                    app:tint="@color/nightlight_cream_dim" />
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <ImageButton
+                        android:id="@+id/np_shuffle"
+                        android:layout_width="@dimen/control_button"
+                        android:layout_height="@dimen/control_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/action_shuffle"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_shuffle"
+                        app:tint="@color/nightlight_cream_dim" />
+
+                    <TextView
+                        android:id="@+id/np_shuffle_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.14"
+                        android:text="SMART"
+                        android:textColor="@color/nightlight_cream_dim"
+                        android:textSize="8sp" />
+                </LinearLayout>
 
                 <Space
                     android:layout_width="0dp"
@@ -306,8 +322,8 @@
                         android:background="@null"
                         android:contentDescription="@string/lyrics_desc"
                         android:padding="2dp"
-                        android:src="@drawable/ic_lyrics_sing"
-                        app:tint="@color/nightlight_cyan" />
+                        android:src="@drawable/ic_lyrics"
+                        app:tint="@color/lyrics_icon_tint" />
 
                     <TextView
                         android:layout_width="wrap_content"
