@@ -147,6 +147,7 @@ export class ImportService {
   // ---- YouTube ----
 
   private async fetchYouTube(url: URL): Promise<{ items: PlaylistTrack[]; name: string }> {
+    const wanted = 200
     const list = url.searchParams.get('list')
     if (!list) {
       throw new Error('Not a YouTube playlist link')
