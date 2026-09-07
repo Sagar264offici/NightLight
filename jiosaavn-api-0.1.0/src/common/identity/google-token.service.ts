@@ -13,7 +13,11 @@ import { createRemoteJWKSet, jwtVerify } from 'jose'
  * Configuration: GOOGLE_WEB_CLIENT_ID env var on the server (not a secret).
  */
 
-const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'))
+// Short cooldown so a Google key rotation is picked up on the next retry
+// within seconds instead of failing for up to 30s (JWKSNoMatchingKey).
+const GOOGLE_JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'), {
+  cooldownDuration: 10_000
+})
 
 export interface GoogleIdentity {
   sub: string
