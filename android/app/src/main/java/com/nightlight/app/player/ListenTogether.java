@@ -116,8 +116,10 @@ public final class ListenTogether {
         send.setType("text/plain");
         send.putExtra(android.content.Intent.EXTRA_SUBJECT,
                 context.getString(com.nightlight.app.R.string.listen_share_title));
-        send.putExtra(android.content.Intent.EXTRA_TEXT,
-                context.getString(com.nightlight.app.R.string.listen_share_body, code, code));
+        String link = "https://nightlight-api.onrender.com/l/" + code;
+        String body = "Listen with me on NightLight — session " + code + "\n\n" + link
+                + "\n\nIf the app does not open automatically, enter code " + code + " in NightLight.";
+        send.putExtra(android.content.Intent.EXTRA_TEXT, body);
         context.startActivity(android.content.Intent.createChooser(send,
                 context.getString(com.nightlight.app.R.string.listen_share_title)));
     }
