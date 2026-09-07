@@ -29,7 +29,7 @@ export class ImportService {
       .replace(/^www\./, '')
       .replace(/^music\./, '')
       .toLowerCase()
-    const wanted = Math.min(Math.max(limit, 1), 100)
+    const wanted = Math.min(Math.max(limit, 1), 200)
 
     let items: PlaylistTrack[] = []
     let name = ''
@@ -166,28 +166,32 @@ export class ImportService {
     )?.metadata?.playlistMetadataRenderer?.title
     const name = meta ?? this.parseTitle(html) ?? 'YouTube playlist'
 
-    // 2) If the first page was lazy, page through YouTube's web client.
-    if (items.length === 0 && key) {
-      const body = {
-        context: { client: { clientName: 'WEB', clientVersion: '2.20241001.00.00', hl: 'en' } },
-        browseId: `VL${list}`,
-        racyCheckOk: true
-      }
+    // Always walk continuation pages. YouTube often returns the first batch
+    // in ytInitialData even when many more tracks are available.
+    if (key && items.length < wanted) {
       try {
-        const first = await this.httpJson('https://www.youtube.com/youtubei/v1/browse', key, body)
-        let page = first
-        for (let hop = 0; hop < 6 && items.length < 100; hop++) {
-          const batch = this.collectYtItems(page)
-          items.push(...batch)
-          const token = this.findContinuation(page)
-          if (!token) break
-          page = await this.httpJson('https://www.youtube.com/youtubei/v1/browse', key, {
-            context: { client: { clientName: 'WEB', clientVersion: '2.20241001.00.00', hl: 'en' } },
-            continuation: token
-          })
+        let page: unknown = {
+          context: { client: { clientName: 'WEB', clientVersion: '2.20241001.00.00', hl: 'en' } },
+          browseId: `VL${list}`,
+          racyCheckOk: true
+        }
+        let token: string | null = null
+        const seenTokens = new Set<string>()
+        for (let hop = 0; hop < 25 && items.length < wanted; hop++) {
+          page = token
+            ? await this.httpJson('https://www.youtube.com/youtubei/v1/browse', key, {
+                context: { client: { clientName: 'WEB', clientVersion: '2.20241001.00.00', hl: 'en' } },
+                continuation: token
+              })
+            : await this.httpJson('https://www.youtube.com/youtubei/v1/browse', key, page)
+          items.push(...this.collectYtItems(page))
+          const next = this.findContinuation(page)
+          if (!next || seenTokens.has(next)) break
+          seenTokens.add(next)
+          token = next
         }
       } catch {
-        // Fall through with whatever the HTML page gave us.
+        // Keep everything already collected from HTML/continuations.
       }
     }
     return { items, name: String(name) }
@@ -286,6 +290,31 @@ export class ImportService {
         // Try the next JSON-LD block.
       }
     }
+    // Apple sometimes omits MusicPlaylist and exposes the tracks as
+    // MusicRecording nodes inside an @graph/itemListElement structure.
+    const fallback: PlaylistTrack[] = []
+    let fallbackName = 'Apple Music playlist'
+    for (const b of html.matchAll(/<script type="application\/ld\\+json">(.*?)<\/script>/gs)) {
+      try {
+        const doc = JSON.parse(b[1].trim())
+        const walk = (node: unknown) => {
+          if (Array.isArray(node)) { node.forEach(walk); return }
+          if (!node || typeof node !== 'object') return
+          const rec = node as Record<string, unknown>
+          const type = rec['@type']
+          if (type === 'MusicPlaylist' && typeof rec.name === 'string') fallbackName = rec.name
+          if (type === 'MusicRecording' && typeof rec.name === 'string' && fallback.length < 200) {
+            let artist = ''
+            const by = rec.byArtist as Record<string, unknown> | undefined
+            if (by && typeof by.name === 'string') artist = by.name
+            fallback.push({ title: rec.name, artist: artist || undefined })
+          }
+          Object.values(rec).forEach(walk)
+        }
+        walk(doc)
+      } catch {}
+    }
+    if (fallback.length) return { items: fallback, name: fallbackName }
     throw new Error('Could not read this Apple Music playlist (it may be private or regional)')
   }
 
