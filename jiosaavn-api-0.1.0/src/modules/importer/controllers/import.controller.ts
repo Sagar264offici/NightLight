@@ -6,7 +6,7 @@ import { ImportService } from '../services/import.service'
 
 const ImportBody = z.object({
   url: z.string().url().max(2048).openapi({
-    description: 'Public Spotify or YouTube playlist URL',
+    description: 'Public Spotify, Apple Music or YouTube/YouTube Music playlist URL',
     example: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'
   }),
   limit: z.number().int().min(1).max(100).optional().default(60)
@@ -34,9 +34,9 @@ export class ImportController implements Routes {
         method: 'post',
         path: '/import/playlist',
         tags: ['Import'],
-        summary: 'Import a Spotify/YouTube playlist',
+        summary: 'Import a Spotify/Apple Music/YouTube playlist',
         description:
-          'Resolves a public playlist URL, matches every track against the ' +
+          'Resolves a public playlist URL, follows pagination where available, and matches every track against the ' +
           'music library, and returns the playable songs ready to store locally.',
         operationId: 'importPlaylist',
         request: { body: { content: { 'application/json': { schema: ImportBody } } } },
