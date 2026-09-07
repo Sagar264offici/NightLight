@@ -42,6 +42,22 @@ export class SessionsService {
     return { code: session.code, owner: session.owner, members: session.members.length, state: session.state }
   }
 
+  async addChat(code: string, deviceId: string, name: string, text: string) {
+    const normalized = this.normalize(code)
+    const session = await this.repo.find(normalized)
+    if (!session) throw new HTTPException(404, { message: 'Session not found' })
+    const member = session.members.some((m) => m.deviceId === deviceId)
+    if (!member) throw new HTTPException(403, { message: 'Join the session before chatting' })
+    return this.repo.addChat(normalized, deviceId, name || 'Listener', text)
+  }
+
+  async getChat(code: string, after = 0) {
+    const normalized = this.normalize(code)
+    const session = await this.repo.find(normalized)
+    if (!session) throw new HTTPException(404, { message: 'Session not found' })
+    return this.repo.getChat(normalized, after)
+  }
+
   private normalize(code: string): string {
     return (code ?? '').trim().toUpperCase().slice(0, 8)
   }
