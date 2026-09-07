@@ -122,6 +122,7 @@ public final class MainActivity extends AppCompatActivity {
                 show(homeFragment);
             } else if (id == R.id.nav_search) {
                 show(searchFragment);
+                searchFragment.focusSearchInput();
             } else if (id == R.id.nav_library) {
                 show(libraryFragment);
             }
