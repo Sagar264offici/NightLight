@@ -48,6 +48,16 @@ export interface ExchangeResult {
   user: { id: string; email: string; createdAt: string }
 }
 
+/** Mongo duplicate-key errors carry code 11000. */
+function isDuplicateKeyError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === 11000
+  )
+}
+
 export class FirebaseAuthService {
   private users = () => collection(Collections.USERS)
 
@@ -112,27 +122,46 @@ export class FirebaseAuthService {
     const email = identity.email.trim().toLowerCase()
     const now = new Date()
 
+    // The session token is generated up-front and stored WITH the insert.
+    // Users must never be created without a tokenHash: the unique index on
+    // tokenHash treats a missing field as null, so every user inserted
+    // without one would collide on the single null slot (E11000 -> 500).
+    const rawToken = randomBytes(32).toString('base64url')
+    const tokenHash = hashToken(rawToken)
+
     let user = (await this.users().findOne({ email })) as (UserDoc & { _id: { toString(): string } }) | null
+    let created = false
     if (!user) {
-      const inserted = await this.users().insertOne({
-        email,
-        firebaseUid: identity.uid,
-        platform: 'android',
-        createdAt: now,
-        lastSeenAt: now
-      })
-      user = { _id: inserted.insertedId, email, firebaseUid: identity.uid, createdAt: now }
-    } else if (user.firebaseUid && user.firebaseUid !== identity.uid) {
-      // Different Firebase identity claiming the same verified email: the
-      // mailbox was re-registered in Firebase. Re-point the account.
+      try {
+        const inserted = await this.users().insertOne({
+          email,
+          firebaseUid: identity.uid,
+          tokenHash,
+          platform: 'android',
+          createdAt: now,
+          lastSeenAt: now
+        })
+        user = { _id: inserted.insertedId, email, firebaseUid: identity.uid, createdAt: now }
+        created = true
+      } catch (err) {
+        // Concurrent first sign-in for the same verified email: re-read the
+        // winner's document instead of failing the exchange.
+        if (!isDuplicateKeyError(err)) throw err
+        user = (await this.users().findOne({ email })) as (UserDoc & { _id: { toString(): string } }) | null
+        if (!user) throw err
+      }
+    }
+    if (user.firebaseUid && user.firebaseUid !== identity.uid) {
+      // Different identity claiming the same verified email: the mailbox was
+      // re-registered upstream (Firebase or Google). Re-point the account.
       await this.users().updateOne({ _id: user._id }, { $set: { firebaseUid: identity.uid } })
     }
-
-    const rawToken = randomBytes(32).toString('base64url')
-    await this.users().updateOne(
-      { _id: user._id },
-      { $set: { tokenHash: hashToken(rawToken), lastSeenAt: now } }
-    )
+    if (!created) {
+      await this.users().updateOne(
+        { _id: user._id },
+        { $set: { tokenHash, lastSeenAt: now } }
+      )
+    }
 
     return {
       token: rawToken,

@@ -49,7 +49,11 @@ async function ensureIndexes(database: Db) {
   await createIndexHealing(users, { email: 1 }, { unique: true, sparse: true, name: 'email_1' })
   await users.createIndex({ deviceId: 1 }, { unique: true, sparse: true })
   await users.createIndex({ email: 1 }, { unique: true, sparse: true })
-  await users.createIndex({ tokenHash: 1 }, { unique: true })
+  // tokenHash MUST be sparse: password registration and Firebase/Google
+  // exchange insert users before a session exists, so the field is missing.
+  // A non-sparse unique index collapses all such documents onto the single
+  // `null` slot and every subsequent user creation fails with E11000.
+  await createIndexHealing(users, { tokenHash: 1 }, { unique: true, sparse: true, name: 'tokenHash_1' })
 
   const otps = database.collection(Collections.OTPS)
   await otps.createIndex({ email: 1, createdAt: -1 })
