@@ -109,6 +109,59 @@ export class SessionsController implements Routes {
 
     this.controller.openapi(
       createRoute({
+        method: 'post',
+        path: '/:code/chat',
+        tags: ['Sessions'],
+        summary: 'Send a chat message to a listen-together session',
+        operationId: 'sendSessionChat',
+        request: {
+          params: CodeParam,
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  deviceId: z.string().min(4).max(128),
+                  name: z.string().max(60).optional().default('Listener'),
+                  text: z.string().min(1).max(280)
+                })
+              }
+            }
+          }
+        },
+        responses: { 200: { description: 'Chat message accepted' } }
+      }),
+      async (ctx) => {
+        const { code } = ctx.req.valid('param')
+        const { deviceId, name, text } = ctx.req.valid('json')
+        const message = await this.sessionsService.addChat(code, deviceId, name, text)
+        if (!message) throw new (await import('hono/http-exception')).HTTPException(400, { message: 'Message cannot be empty' })
+        return ctx.json({ success: true, data: message })
+      }
+    )
+
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/:code/chat',
+        tags: ['Sessions'],
+        summary: 'Read new listen-together chat messages',
+        operationId: 'getSessionChat',
+        request: {
+          params: CodeParam,
+          query: z.object({ after: z.coerce.number().min(0).optional().default(0) })
+        },
+        responses: { 200: { description: 'Chat messages' } }
+      }),
+      async (ctx) => {
+        const { code } = ctx.req.valid('param')
+        const { after } = ctx.req.valid('query')
+        const messages = await this.sessionsService.getChat(code, after)
+        return ctx.json({ success: true, data: messages })
+      }
+    )
+
+    this.controller.openapi(
+      createRoute({
         method: 'put',
         path: '/:code/state',
         tags: ['Sessions'],
