@@ -112,27 +112,15 @@ public final class LoginActivity extends AppCompatActivity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_HORIZONTAL);
         int pad = Math.round(28f * getResources().getDisplayMetrics().density);
-        content.setPadding(pad, Math.round(24f * getResources().getDisplayMetrics().density), pad, pad);
+        content.setPadding(pad, Math.round(16f * getResources().getDisplayMetrics().density), pad, pad);
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.nightlight_logo);
-        int logoSize = Math.round(72f * getResources().getDisplayMetrics().density);
+        int logoSize = Math.round(64f * getResources().getDisplayMetrics().density);
         logo.setLayoutParams(new LinearLayout.LayoutParams(logoSize, logoSize));
         logo.setAlpha(0f);
         logo.animate().alpha(1f).setDuration(500).start();
         content.addView(logo);
-
-        TextView welcome = new TextView(this);
-        welcome.setText(R.string.login_welcome);
-        welcome.setTextColor(getColor(R.color.nightlight_cream));
-        welcome.setTextSize(26f);
-        welcome.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        welcome.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams welcomeLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        welcomeLp.topMargin = Math.round(14f * getResources().getDisplayMetrics().density);
-        welcome.setLayoutParams(welcomeLp);
-        content.addView(welcome);
 
         TextView tagline = new TextView(this);
         tagline.setText(R.string.login_tagline);
