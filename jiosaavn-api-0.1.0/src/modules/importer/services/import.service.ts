@@ -42,7 +42,7 @@ export class ImportService {
       name = parsed.name
     } else if (host.includes('youtube.com') || host.includes('youtu.be')) {
       source = 'youtube'
-      const parsed = await this.fetchYouTube(url)
+      const parsed = await this.fetchYouTube(url, wanted)
       items = parsed.items
       name = parsed.name
     } else if (host.includes('apple.com')) {
@@ -146,8 +146,7 @@ export class ImportService {
 
   // ---- YouTube ----
 
-  private async fetchYouTube(url: URL): Promise<{ items: PlaylistTrack[]; name: string }> {
-    const wanted = 200
+  private async fetchYouTube(url: URL, wanted: number): Promise<{ items: PlaylistTrack[]; name: string }> {
     const list = url.searchParams.get('list')
     if (!list) {
       throw new Error('Not a YouTube playlist link')
@@ -159,7 +158,8 @@ export class ImportService {
     if (!initial) {
       throw new Error('YouTube did not return playlist data')
     }
-    const items = this.collectYtItems(initial)
+    const initialItems = this.collectYtItems(initial)
+    const items: PlaylistTrack[] = initialItems.slice(0, wanted)
     const meta = (
       initial as {
         metadata?: { playlistMetadataRenderer?: { title?: string } }
@@ -185,7 +185,16 @@ export class ImportService {
                 continuation: token
               })
             : await this.httpJson('https://www.youtube.com/youtubei/v1/browse', key, page)
-          items.push(...this.collectYtItems(page))
+          const batch = this.collectYtItems(page)
+          const existing = new Set(items.map((x) => `${x.title}\u0000${x.artist ?? ''}`))
+          for (const item of batch) {
+            const key = `${item.title}\u0000${item.artist ?? ''}`
+            if (items.length >= wanted) break
+            if (!existing.has(key)) {
+              existing.add(key)
+              items.push(item)
+            }
+          }
           const next = this.findContinuation(page)
           if (!next || seenTokens.has(next)) break
           seenTokens.add(next)
