@@ -251,6 +251,20 @@ public final class SearchFragment extends Fragment {
         return 0;
     }
 
+    public void focusSearchInput() {
+        if (input == null) return;
+        input.postDelayed(() -> {
+            if (!isAdded()) return;
+            input.setFocusableInTouchMode(true);
+            input.requestFocus();
+            InputMethodManager imm = (InputMethodManager) requireContext()
+                    .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            }
+        }, 120);
+    }
+
     private void hideKeyboard() {
         InputMethodManager imm = (InputMethodManager) requireContext()
                 .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
