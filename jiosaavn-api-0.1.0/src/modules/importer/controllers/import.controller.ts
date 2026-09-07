@@ -9,7 +9,7 @@ const ImportBody = z.object({
     description: 'Public Spotify, Apple Music or YouTube/YouTube Music playlist URL',
     example: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'
   }),
-  limit: z.number().int().min(1).max(100).optional().default(60)
+  limit: z.number().int().min(1).max(200).optional().default(200)
 })
 
 /**
