@@ -172,26 +172,111 @@ public final class LibraryFragment extends Fragment {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
-    /** Paste a Spotify/YouTube playlist URL; matched songs are saved locally. */
+    /** Import from Spotify, Apple Music, or YouTube with explicit source selection. */
     private void showImportDialog() {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(requireContext());
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(4), dp(20), 0);
+
+        TextView sourceLabel = new TextView(requireContext());
+        sourceLabel.setText("SOURCE");
+        sourceLabel.setTextColor(com.google.android.material.color.MaterialColors.getColor(
+                sourceLabel, com.google.android.material.R.attr.colorOnSurfaceVariant));
+        sourceLabel.setTextSize(11f);
+        sourceLabel.setLetterSpacing(0.14f);
+        box.addView(sourceLabel);
+
+        android.widget.LinearLayout sources = new android.widget.LinearLayout(requireContext());
+        sources.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        sources.setPadding(0, dp(6), 0, dp(12));
+
+        String[] names = {"Spotify", "Apple Music", "YouTube"};
+        String[] keys = {"spotify", "apple", "youtube"};
+        android.widget.Button[] buttons = new android.widget.Button[3];
+        final String[] selected = {"spotify"};
+        for (int i = 0; i < names.length; i++) {
+            final int idx = i;
+            android.widget.Button b = new android.widget.Button(requireContext());
+            b.setAllCaps(false);
+            b.setText(names[i]);
+            b.setTextSize(12f);
+            b.setMinHeight(0);
+            b.setMinWidth(0);
+            b.setPadding(dp(8), 0, dp(8), 0);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                    0, dp(42), 1f);
+            if (i > 0) lp.setMarginStart(dp(6));
+            b.setLayoutParams(lp);
+            buttons[i] = b;
+            b.setOnClickListener(v -> {
+                selected[0] = keys[idx];
+                for (int j = 0; j < buttons.length; j++) {
+                    buttons[j].setTypeface(android.graphics.Typeface.DEFAULT,
+                            j == idx ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                    buttons[j].setAlpha(j == idx ? 1f : 0.62f);
+                }
+                inputHint(box, idx);
+            });
+            sources.addView(b);
+        }
+        box.addView(sources);
+
         EditText input = new EditText(requireContext());
-        input.setHint(R.string.import_url_hint);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         input.setTextColor(0xFFF5EBDD);
+        input.setHintTextColor(0xFF8D8495);
+        input.setHint("Paste playlist link");
+        input.setPadding(dp(14), dp(10), dp(14), dp(10));
+        box.addView(input);
+        buttons[0].performClick();
 
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(R.string.import_title)
-                .setMessage(R.string.import_message)
-                .setView(input)
+                .setMessage("Choose a service, then paste its playlist link. Public playlists work best.")
+                .setView(box)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.import_positive, (d, w) -> {
-                    String url = input.getText() == null ? "" : input.getText().toString().trim();
-                    if (!url.isEmpty()) {
-                        doImport(url);
-                    }
-                })
-                .show();
+                .setPositiveButton(R.string.import_positive, null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String url = input.getText() == null ? "" : input.getText().toString().trim();
+            if (url.isEmpty()) {
+                input.setError("Paste a playlist link");
+                return;
+            }
+            if (!matchesSource(url, selected[0])) {
+                input.setError("That link is not a " + selected[0] + " playlist");
+                return;
+            }
+            dialog.dismiss();
+            doImport(url);
+        }));
+        dialog.show();
+    }
+
+    private void inputHint(android.view.View box, int index) {
+        if (box instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) box;
+            android.view.View last = group.getChildAt(group.getChildCount() - 1);
+            if (last instanceof EditText) {
+                String[] hints = {"https://open.spotify.com/playlist/…", "https://music.apple.com/.../playlist/…", "https://www.youtube.com/playlist?list=…"};
+                ((EditText) last).setHint(hints[index]);
+            }
+        }
+    }
+
+    private boolean matchesSource(String raw, String source) {
+        try {
+            String host = new java.net.URI(raw).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(java.util.Locale.US).replaceFirst("^www\\.", "").replaceFirst("^music\\.", "");
+            if ("spotify".equals(source)) return host.contains("spotify.com");
+            if ("apple".equals(source)) return host.contains("apple.com");
+            return host.contains("youtube.com") || host.contains("youtu.be");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void doImport(String url) {
@@ -201,7 +286,7 @@ public final class LibraryFragment extends Fragment {
         progress.setCancelable(false);
         progress.show();
 
-        playlists.importFromUrl(url, 60, new PlaylistRepository.ImportCallback() {
+        playlists.importFromUrl(url, 200, new PlaylistRepository.ImportCallback() {
             @Override
             public void onSuccess(String playlistName, List<Track> tracks, List<String> unmatched) {
                 progress.dismiss();
@@ -212,14 +297,10 @@ public final class LibraryFragment extends Fragment {
                 }
                 String name = playlistName == null || playlistName.trim().isEmpty()
                         ? "Imported playlist" : playlistName.trim();
-                playlists.createLocalWithTracks(name, tracks, new PlaylistRepository.ActionCallback() {
-                    @Override
-                    public void onDone(boolean success) {
+                playlists.createLocalWithTracks(name, tracks, success ->
                         Toast.makeText(requireContext(),
                                 getString(R.string.import_done, tracks.size(), tracks.size() + unmatched.size()),
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
+                                Toast.LENGTH_LONG).show());
             }
 
             @Override
