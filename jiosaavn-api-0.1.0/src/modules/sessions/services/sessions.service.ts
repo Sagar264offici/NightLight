@@ -37,8 +37,14 @@ export class SessionsService {
     deviceId: string,
     patch: { track?: TrackSnapshot | null; positionMs?: number; playing?: boolean }
   ) {
-    const session = await this.repo.updateState(this.normalize(code), deviceId, patch)
-    if (!session) throw new HTTPException(404, { message: 'Session not found' })
+    const normalized = this.normalize(code)
+    const existing = await this.repo.find(normalized)
+    if (!existing) throw new HTTPException(404, { message: 'Session not found' })
+    if (existing.owner !== deviceId) {
+      throw new HTTPException(403, { message: 'Only the host can update playback state' })
+    }
+    const session = await this.repo.updateState(normalized, deviceId, patch)
+    if (!session) throw new HTTPException(403, { message: 'Only the host can update playback state' })
     return { code: session.code, owner: session.owner, members: session.members.length, state: session.state }
   }
 
