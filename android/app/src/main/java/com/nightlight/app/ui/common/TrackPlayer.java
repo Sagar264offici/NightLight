@@ -85,7 +85,28 @@ public final class TrackPlayer {
         app.getMusicRepository().resolveTracks(tracks, new MusicRepository.TracksCallback() {
             @Override
             public void onSuccess(List<Track> resolved) {
-                PlaybackManager.get(context).playTracks(resolved, Math.max(0, Math.min(startIndex, resolved.size() - 1)));
+                if (resolved == null || resolved.isEmpty()) {
+                    AppExecutors.onMain(() -> android.widget.Toast.makeText(context,
+                            "No playable tracks were found.", android.widget.Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                // Resolve may return a shorter list when a provider track is
+                // unavailable. Recompute the requested index by stable track ID
+                // instead of reusing the old numeric index.
+                String requestedId = startIndex >= 0 && startIndex < tracks.size()
+                        ? tracks.get(startIndex).id : null;
+                int resolvedIndex = 0;
+                if (requestedId != null) {
+                    for (int i = 0; i < resolved.size(); i++) {
+                        if (requestedId.equals(resolved.get(i).id)) {
+                            resolvedIndex = i;
+                            break;
+                        }
+                    }
+                } else {
+                    resolvedIndex = Math.max(0, Math.min(startIndex, resolved.size() - 1));
+                }
+                PlaybackManager.get(context).playTracks(resolved, resolvedIndex);
                 openNowPlaying(context);
             }
 
