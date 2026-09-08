@@ -285,14 +285,10 @@ public final class AuthRepository {
                     @Override
                     public void onResponse(Call<ApiResponse<OtpDtos.FirebaseExchangeResponse>> call,
                                            Response<ApiResponse<OtpDtos.FirebaseExchangeResponse>> response) {
-                        // Temporary diagnostic: status + raw error body (no token data).
-                        if (!response.isSuccessful()) {
-                            String raw = null;
-                            try {
-                                raw = response.errorBody() == null ? null : response.errorBody().string();
-                            } catch (Exception ignored) {
-                            }
-                            android.util.Log.e("NightLightAuth", "exchange HTTP " + response.code() + " body=" + raw);
+                        // Safe diagnostic: never write server error bodies, tokens,
+                        // or account data to Logcat in a release build.
+                        if (!response.isSuccessful() && com.nightlight.app.BuildConfig.DEBUG) {
+                            android.util.Log.w("NightLightAuth", "exchange HTTP " + response.code());
                         }
                         ApiResponse<OtpDtos.FirebaseExchangeResponse> body = response.body();
                         if (response.isSuccessful() && body != null && body.success
