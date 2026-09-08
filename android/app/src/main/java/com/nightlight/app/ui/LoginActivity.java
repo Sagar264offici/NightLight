@@ -114,6 +114,8 @@ public final class LoginActivity extends AppCompatActivity {
         lockLp.gravity = Gravity.CENTER_HORIZONTAL;
         lockLp.topMargin = dp(60);
         lockIcon.setLayoutParams(lockLp);
+        lockIcon.setAlpha(0f);
+        lockIcon.animate().alpha(1f).setDuration(500).start();
         root.addView(lockIcon);
 
         // --- "Sign In" heading ---
@@ -126,9 +128,21 @@ public final class LoginActivity extends AppCompatActivity {
         LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         headLp.topMargin = dp(12);
-        headLp.bottomMargin = dp(32);
+        headLp.bottomMargin = dp(16);
         heading.setLayoutParams(headLp);
         root.addView(heading);
+
+        // --- Tagline ---
+        TextView tagline = new TextView(this);
+        tagline.setText(R.string.login_tagline);
+        tagline.setTextColor(getColor(R.color.nightlight_cream_dim));
+        tagline.setTextSize(14f);
+        tagline.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams tagLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tagLp.bottomMargin = dp(24);
+        tagline.setLayoutParams(tagLp);
+        root.addView(tagline);
 
         // --- Email / Username field ---
         emailInput = iconInput(R.string.login_email_hint, InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,

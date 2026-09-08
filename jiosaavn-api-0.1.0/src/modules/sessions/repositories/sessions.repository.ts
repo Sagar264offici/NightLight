@@ -1,6 +1,14 @@
 import type { Document } from 'mongodb'
 import { collection, Collections } from '#common/database/mongo'
 
+export interface ChatMessageRecord {
+  id: string
+  deviceId: string
+  name: string
+  text: string
+  createdAt: number
+}
+
 export interface MemberRecord {
   deviceId: string
   name: string
@@ -24,14 +32,6 @@ export interface SessionStateRecord {
   updatedAt: number
 }
 
-export interface ChatMessage {
-  id: string
-  deviceId: string
-  name: string
-  message: string
-  createdAt: number
-}
-
 const MAX_CHAT_MESSAGES = 100
 
 export interface SessionRecord {
@@ -39,7 +39,7 @@ export interface SessionRecord {
   owner: string
   members: MemberRecord[]
   state: SessionStateRecord
-  messages: ChatMessage[]
+  messages: ChatMessageRecord[]
   createdAt: number
 }
 
@@ -48,8 +48,8 @@ interface SessionDoc extends Document {
   owner: string
   members: MemberRecord[]
   state: SessionStateRecord
-  messages: ChatMessage[]
-  createdAt: number
+  messages?: ChatMessageRecord[]
+  createdAt?: number
   updatedAt?: number
 }
 
@@ -70,8 +70,8 @@ export class SessionsRepository {
         playing: true,
         updatedAt: now
       },
-      messages: [],
-      createdAt: now
+      createdAt: now,
+      messages: []
     }
     await this.collection().insertOne(doc)
     return this.lean(doc)
@@ -112,6 +112,30 @@ export class SessionsRepository {
     return fresh ? this.lean(fresh) : null
   }
 
+  async addChat(code: string, deviceId: string, name: string, text: string): Promise<ChatMessageRecord | null> {
+    const clean = text.trim().slice(0, 280)
+    if (!clean) return null
+    const now = Date.now()
+    const message: ChatMessageRecord = {
+      id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+      deviceId,
+      name: (name || 'Listener').trim().slice(0, 60),
+      text: clean,
+      createdAt: now
+    }
+    const result = await this.collection().findOneAndUpdate(
+      { code },
+      { $push: { messages: { $each: [message], $slice: -100 } }, $set: { updatedAt: now } } as never,
+      { returnDocument: 'after' }
+    )
+    return result?.messages?.at(-1) ?? null
+  }
+
+  async getChat(code: string, after = 0): Promise<ChatMessageRecord[]> {
+    const doc = await this.collection().findOne({ code })
+    return (doc?.messages ?? []).filter((m) => m.createdAt > Math.max(0, after)).slice(-100)
+  }
+
   async touch(code: string): Promise<void> {
     await this.collection().updateOne({ code }, { $set: { updatedAt: Date.now() } })
   }
@@ -120,23 +144,26 @@ export class SessionsRepository {
    * Append a chat message to the session. Bounded to MAX_CHAT_MESSAGES by
    * trimming oldest messages when the array exceeds the limit.
    */
-  async addMessage(code: string, msg: ChatMessage): Promise<SessionRecord | null> {
+  async addMessage(code: string, msg: Omit<ChatMessageRecord, 'id' | 'createdAt'>): Promise<ChatMessageRecord> {
+    const now = Date.now()
+    const message: ChatMessageRecord = {
+      id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: now,
+      ...msg
+    }
     await this.collection().updateOne(
       { code },
-      { $push: { messages: { $each: [msg], $slice: -MAX_CHAT_MESSAGES } } } as never
+      { $push: { messages: { $each: [message], $slice: -MAX_CHAT_MESSAGES } } } as never
     )
-    const fresh = await this.collection().findOne({ code })
-    return fresh ? this.lean(fresh) : null
+    return message
   }
 
   /**
    * Fetch chat messages newer than `since` (timestamp). Returns an empty array
    * when `since` is >= the newest message.
    */
-  async getMessages(code: string, since = 0): Promise<ChatMessage[]> {
-    const doc = await this.collection().findOne({ code })
-    if (!doc?.messages) return []
-    return doc.messages.filter((m) => m.createdAt > since)
+  async getMessages(code: string, since = 0): Promise<ChatMessageRecord[]> {
+    return this.getChat(code, since)
   }
 
   private lean(doc: SessionDoc): SessionRecord {

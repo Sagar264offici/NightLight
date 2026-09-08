@@ -227,6 +227,20 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onBackPressed() {
+        if (current != homeFragment) {
+            ((BottomNavigationView) findViewById(R.id.bottom_nav)).setSelectedItemId(R.id.nav_home);
+            return;
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Leave NightLight?")
+                .setMessage("Do you really want to quit the app? Your music will stop.")
+                .setPositiveButton("Quit", (dialog, which) -> finishAndRemoveTask())
+                .setNegativeButton("Stay", null)
+                .show();
+    }
+
+    @Override
     protected void onStart() {
         super.onStart();
         PlaybackManager.get(this).addListener(playbackListener);

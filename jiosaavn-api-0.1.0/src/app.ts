@@ -59,6 +59,23 @@ export class App {
       }
     })
 
+    // Share-link bridge: lets a listener tap an HTTPS link from messaging apps.
+    // The page attempts the native NightLight scheme immediately and provides
+    // a visible fallback if the browser blocks custom-scheme navigation.
+    this.app.get('/l/:code', (ctx) => {
+      const code = (ctx.req.param('code') || '').trim().toUpperCase()
+      if (!/^[A-Z0-9]{4,8}$/.test(code)) {
+        return ctx.text('Invalid NightLight session link', 400)
+      }
+      const deepLink = 'nightlight://listen/' + code
+      const escaped = JSON.stringify(deepLink)
+      return ctx.html('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join NightLight</title>' +
+        '<meta http-equiv="refresh" content="1;url=' + deepLink + '">' +
+        '<style>body{margin:0;background:#07090e;color:#f5eadc;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}main{text-align:center;padding:32px}a{display:inline-block;margin-top:18px;padding:13px 20px;border-radius:14px;background:#e6c47a;color:#14100a;text-decoration:none;font-weight:700}p{color:#a9a0b5}</style></head>' +
+        '<body><main><h1>Opening NightLight…</h1><p>Session ' + code + '</p><a href="' + deepLink + '">Open NightLight</a>' +
+        '<script>setTimeout(function(){location.href=' + escaped + '},120)</script></main></body></html>')
+    })
+
     // NightLight branding: serve a local favicon instead of the upstream one.
     // The icon lives next to the compiled dist output, so it resolves whether
     // the server runs from src/ or dist/.

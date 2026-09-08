@@ -50,30 +50,25 @@ public final class SessionsDtos {
         public SessionState state;
     }
 
-    // Chat DTOs
+    // Chat DTOs — wire field for message content is `text` on both directions.
 
     public static class ChatSendRequest {
         public String deviceId;
         public String name;
-        public String message;
+        public String text;
 
-        public ChatSendRequest(String deviceId, String name, String message) {
+        public ChatSendRequest(String deviceId, String name, String text) {
             this.deviceId = deviceId;
             this.name = name;
-            this.message = message;
+            this.text = text;
         }
-    }
-
-    public static class ChatSendResponse {
-        public boolean ok;
-        public String id;
     }
 
     public static class ChatMessage {
         public String id;
         public String deviceId;
         public String name;
-        public String message;
+        public String text;
         public long createdAt;
     }
 

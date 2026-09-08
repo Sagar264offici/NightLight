@@ -144,6 +144,5 @@ public interface NightLightApi {
     @GET("sessions/{code}/chat")
     Call<ApiResponse<SessionsDtos.ChatMessagesResponse>> getChatMessages(
             @Path("code") String code,
-            @Query("deviceId") String deviceId,
-            @Query("since") long since);
+            @Query("after") long after);
 }

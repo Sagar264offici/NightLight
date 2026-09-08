@@ -483,7 +483,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
                 com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage msg = messages.get(position);
                 boolean isMe = msg.deviceId != null
                         && msg.deviceId.equals(com.nightlight.app.util.TokenStore.getDeviceId());
-                tv.setText((isMe ? "You" : msg.name) + ": " + msg.message);
+                tv.setText((isMe ? "You" : msg.name) + ": " + msg.text);
                 tv.setTextColor(getColor(isMe ? R.color.nightlight_gold : R.color.nightlight_cream));
                 tv.setTextSize(14f);
                 int dp4 = Math.round(4f * getResources().getDisplayMetrics().density);

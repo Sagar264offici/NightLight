@@ -1,8 +1,6 @@
 package com.nightlight.app.ui.fragments;
 
-import android.app.ProgressDialog;
 import android.os.Bundle;
-import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -172,8 +170,10 @@ public final class LibraryFragment extends Fragment {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
-    /** Paste a Spotify/YouTube playlist URL; matched songs are saved locally. */
+    /** Import from Spotify, Apple Music, or YouTube with explicit source selection. */
     private void showImportDialog() {
+        // Shared import dialog: source picker (Spotify / Apple Music /
+        // YouTube) + URL entry, with honest imported-vs-parsed counts.
         PlaylistDialogs.showImportDialog(requireActivity());
     }
 

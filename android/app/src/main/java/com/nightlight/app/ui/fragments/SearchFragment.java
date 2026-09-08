@@ -251,6 +251,29 @@ public final class SearchFragment extends Fragment {
         return 0;
     }
 
+    /**
+     * Focus + open the keyboard on the actual search field. Called when the
+     * user taps the Search tab; defers via post() until the view is attached
+     * to the window so getWindowToken() is valid and showSoftInput succeeds.
+     */
+    public void focusSearchInput() {
+        if (input == null || !isAdded()) {
+            return;
+        }
+        input.post(() -> {
+            if (!isAdded() || input == null) {
+                return;
+            }
+            input.setFocusableInTouchMode(true);
+            input.requestFocus();
+            InputMethodManager imm = (InputMethodManager) requireContext()
+                    .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            if (imm != null && input.getWindowToken() != null) {
+                imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
+    }
+
     private void hideKeyboard() {
         InputMethodManager imm = (InputMethodManager) requireContext()
                 .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
@@ -263,20 +286,6 @@ public final class SearchFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
-        // Auto-focus the search field and show the keyboard when this
-        // fragment becomes visible. Use postDelayed to avoid layout jump
-        // during fragment transition.
-        if (input != null && input.getVisibility() == View.VISIBLE) {
-            input.requestFocus();
-            input.postDelayed(() -> {
-                if (!isAdded() || input == null) return;
-                InputMethodManager imm = (InputMethodManager) requireContext()
-                        .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-                if (imm != null) {
-                    imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
-                }
-            }, 150);
-        }
     }
 
     /**
@@ -285,22 +294,7 @@ public final class SearchFragment extends Fragment {
      * not only on automatic onResume navigation.
      */
     public void onSearchTabTapped() {
-        if (input == null || !isAdded()) {
-            return;
-        }
-        // Defer until the view is attached to the window so
-        // getWindowToken() is non-null and showSoftInput succeeds.
-        input.post(() -> {
-            if (!isAdded() || input == null) {
-                return;
-            }
-            input.requestFocus();
-            InputMethodManager imm = (InputMethodManager) requireContext()
-                    .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-            if (imm != null && input.getWindowToken() != null) {
-                imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
-            }
-        });
+        focusSearchInput();
     }
 
     @Override

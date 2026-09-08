@@ -92,7 +92,7 @@ public final class ListenTogether {
                 local.id = body != null && body.data != null ? body.data.id : String.valueOf(System.currentTimeMillis());
                 local.deviceId = TokenStore.getDeviceId();
                 local.name = "You";
-                local.message = message;
+                local.text = message;
                 local.createdAt = System.currentTimeMillis();
                 chatMessages.add(local);
                 if (chatListener != null) {
@@ -126,17 +126,30 @@ public final class ListenTogether {
         final String code = activeCode.get();
         if (code == null || appContext == null) return;
         try {
-            long since = lastChatPoll.get();
+            long after = lastChatPoll.get();
             ApiResponse<SessionsDtos.ChatMessagesResponse> body =
-                    ApiClient.nightLightApi(appContext).getChatMessages(
-                            code, TokenStore.getDeviceId(), since).execute().body();
+                    ApiClient.nightLightApi(appContext).getChatMessages(code, after).execute().body();
             if (body != null && body.success && body.data != null && !body.data.isEmpty()) {
-                chatMessages.addAll(body.data);
-                lastChatPoll.set(System.currentTimeMillis());
-                if (chatListener != null) {
-                    List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
-                    AppExecutors.onMain(() -> chatListener.onMessages(snapshot));
+                // Dedupe by id (defensive) and only advance the cursor to the
+                // newest received createdAt so gaps heal on the next poll.
+                long newest = after;
+                java.util.Set<String> known = new java.util.HashSet<>();
+                for (SessionsDtos.ChatMessage m : chatMessages) known.add(m.id);
+                List<SessionsDtos.ChatMessage> fresh = new ArrayList<>();
+                for (SessionsDtos.ChatMessage m : body.data) {
+                    if (known.add(m.id)) {
+                        fresh.add(m);
+                        newest = Math.max(newest, m.createdAt);
+                    }
                 }
+                if (!fresh.isEmpty()) {
+                    chatMessages.addAll(fresh);
+                    if (chatListener != null) {
+                        List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
+                        AppExecutors.onMain(() -> chatListener.onMessages(snapshot));
+                    }
+                }
+                lastChatPoll.set(newest);
             } else {
                 lastChatPoll.set(System.currentTimeMillis());
             }
@@ -205,8 +218,10 @@ public final class ListenTogether {
         send.setType("text/plain");
         send.putExtra(android.content.Intent.EXTRA_SUBJECT,
                 context.getString(com.nightlight.app.R.string.listen_share_title));
-        send.putExtra(android.content.Intent.EXTRA_TEXT,
-                context.getString(com.nightlight.app.R.string.listen_share_body, code, code));
+        String link = "https://nightlight-api.onrender.com/l/" + code;
+        String body = "Listen with me on NightLight — session " + code + "\n\n" + link
+                + "\n\nIf the app does not open automatically, enter code " + code + " in NightLight.";
+        send.putExtra(android.content.Intent.EXTRA_TEXT, body);
         context.startActivity(android.content.Intent.createChooser(send,
                 context.getString(com.nightlight.app.R.string.listen_share_title)));
     }

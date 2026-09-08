@@ -42,8 +42,12 @@ export class SessionsService {
     return { code: session.code, owner: session.owner, members: session.members.length, state: session.state }
   }
 
-  /** Send a chat message within a session. Validates membership and message length. */
-  async sendMessage(code: string, deviceId: string, name: string, message: string) {
+  /**
+   * Send a chat message. Field name is `text` (wire format shared with the
+   * deployed API); membership is required and messages are trimmed to 280
+   * characters. Message content is stored under `text` for every client.
+   */
+  async sendMessage(code: string, deviceId: string, name: string, text: string) {
     const normalized = this.normalize(code)
     const session = await this.repo.find(normalized)
     if (!session) throw new HTTPException(404, { message: 'Session not found — check the code' })
@@ -51,29 +55,15 @@ export class SessionsService {
     if (staleMs > 3 * 60 * 60 * 1000) throw new HTTPException(410, { message: 'That session has expired' })
     const isMember = session.members.some((m) => m.deviceId === deviceId)
     if (!isMember) throw new HTTPException(403, { message: 'You must join the session before chatting' })
-    const trimmed = (message ?? '').trim()
+    const trimmed = (text ?? '').trim()
     if (trimmed.length === 0) throw new HTTPException(400, { message: 'Messages cannot be empty' })
     if (trimmed.length > 280) throw new HTTPException(400, { message: 'Messages must be 280 characters or fewer' })
 
-    const chatMsg = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    return this.repo.addMessage(normalized, {
       deviceId,
       name: name || 'Friend',
-      message: trimmed,
-      createdAt: Date.now()
-    }
-    await this.repo.addMessage(normalized, chatMsg)
-    return { ok: true, id: chatMsg.id }
-  }
-
-  /** Fetch chat messages newer than `since` (timestamp). */
-  async getMessages(code: string, deviceId: string, since = 0) {
-    const normalized = this.normalize(code)
-    const session = await this.repo.find(normalized)
-    if (!session) throw new HTTPException(404, { message: 'Session not found' })
-    const isMember = session.members.some((m) => m.deviceId === deviceId)
-    if (!isMember) throw new HTTPException(403, { message: 'You must join the session to read chat' })
-    return this.repo.getMessages(normalized, since)
+      text: trimmed
+    })
   }
 
   private normalize(code: string): string {
