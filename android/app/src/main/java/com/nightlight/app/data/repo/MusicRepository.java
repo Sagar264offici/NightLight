@@ -286,10 +286,10 @@ public final class MusicRepository {
             }
         }
 
-        fetchChunk(unique, key, 0);
+        fetchChunk(unique, key, 0, new ArrayList<>());
     }
 
-    private void fetchChunk(List<String> ids, String key, int from) {
+    private void fetchChunk(List<String> ids, String key, int from, List<Track> accumulated) {
         int to = Math.min(from + 20, ids.size());
         List<String> chunk = ids.subList(from, to);
 
@@ -302,16 +302,15 @@ public final class MusicRepository {
                     deliverError(key, new HttpStatusException(response.code(), body != null ? body.code : null));
                     return;
                 }
-                if (to < ids.size()) {
-                    fetchChunk(ids, key, to);
-                } else {
-                    List<Track> tracks = new ArrayList<>();
-                    for (SongDtos.SongDto song : body.data) {
-                        if (song.id != null) {
-                            tracks.add(Track.fromSong(song));
-                        }
+                for (SongDtos.SongDto song : body.data) {
+                    if (song.id != null) {
+                        accumulated.add(Track.fromSong(song));
                     }
-                    deliverSuccess(key, tracks);
+                }
+                if (to < ids.size()) {
+                    fetchChunk(ids, key, to, accumulated);
+                } else {
+                    deliverSuccess(key, new ArrayList<>(accumulated));
                 }
             }
 
