@@ -4,50 +4,38 @@ import com.nightlight.app.domain.model.Track;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 /**
- * Queue-level shuffle using an unbiased random-permutation algorithm.
- * Unlike Media3's built-in shuffle (which picks randomly on every Next), this
- * engine maintains an explicit permutation of the eligible queue and advances
- * through it sequentially so every track plays before any repeat.
+ * Queue-level random shuffle.
  *
- * <h3>Algorithm</h3>
- * Maintain a single working array plus a read pointer. On each {@link #nextIndex()}
- * call, pick a random index in [position, size-1], swap it to position, return it,
- * and advance the pointer. When exhausted, rebuild from the original queue.
+ * RANDOM is deliberately different from Smart Shuffle:
+ * it never creates recommendations and never performs network work. It only
+ * permutes the tracks already present in the active playback queue.
  *
- * <p>Contract:
- * <ul>
- *   <li>{@link #activate} captures the queue and generates the first permutation.</li>
- *   <li>{@link #nextIndex} returns the index of the next track to play.</li>
- *   <li>When the permutation is exhausted, a fresh one is generated.</li>
- *   <li>The new permutation avoids starting with the immediately previous track.</li>
- *   <li>{@link #onQueueChanged} updates the permutation safely when the queue mutates.</li>
- * </ul>
+ * A cycle contains every eligible track exactly once. The current track at
+ * activation/manual selection is considered already played for the cycle.
+ * Queue mutations preserve that played state by stable track id so adding or
+ * removing a track does not unexpectedly replay the whole queue.
  */
 public final class NormalShuffleEngine {
 
-    /** The original queue order (never modified by shuffle). */
     private final List<Track> originalOrder = new ArrayList<>();
+    private final List<Integer> working = new ArrayList<>();
+    private final Set<String> playedIds = new HashSet<>();
+    private final Random rng;
 
-    /** Saved original-index base list (0..originalOrder.size()-1). */
-    private List<Integer> base;
-
-    /** Working copy of the current permutation (frontier at {@link #position}). */
-    private List<Integer> working;
-
-    /** Read pointer into {@link #working}. */
+    /** Frontier in the cumulative-sweep permutation. */
     private int position;
 
-    /** Position within the current permutation cycle (for diagnostics). */
-    private int cyclePosition;
-
-    /** Index within originalOrder that was last played (-1 if none). */
+    /** Last returned original queue index, used to avoid a cycle boundary repeat. */
     private int lastPlayedOriginalIndex = -1;
 
-    private final Random rng;
+    /** Stable id of the last returned track. */
+    private String lastPlayedId;
 
     public NormalShuffleEngine() {
         this(new Random());
@@ -55,168 +43,227 @@ public final class NormalShuffleEngine {
 
     public NormalShuffleEngine(Random random) {
         this.rng = random != null ? random : new Random();
-        this.working = new ArrayList<>();
-        this.base = new ArrayList<>();
     }
 
     /**
-     * Activates shuffle on the given queue.
+     * Activates RANDOM on the supplied queue.
      *
-     * The currently playing track keeps playing (it is removed from the
-     * remaining random pool) and the rest are shuffled into a permutation.
-     * This avoids immediately restarting or replaying the current track.
-     *
-     * @param tracks       the current queue
-     * @param currentIndex the index of the currently playing track
+     * @param tracks current playback queue
+     * @param currentIndex currently playing queue index, or -1 when none is playing
      */
     public synchronized void activate(List<Track> tracks, int currentIndex) {
-        originalOrder.clear();
-        originalOrder.addAll(tracks);
-        lastPlayedOriginalIndex = currentIndex;
-        rebuildBase();
-        resetWorking();
-        cyclePosition = 0;
+        replaceQueue(tracks);
+        playedIds.clear();
 
-        // If the current track was present in the original queue and is at
-        // position 0 of the working array, skip past it so we don't replay it
-        // immediately. Don't remove it from the base/working arrays — it's
-        // still part of the queue, just not the next track to play.
-        if (currentIndex >= 0 && currentIndex < originalOrder.size()
-                && !working.isEmpty() && cyclePosition < working.size()
-                && working.get(cyclePosition) == currentIndex) {
-            cyclePosition++;
+        if (isValidIndex(currentIndex)) {
+            Track current = originalOrder.get(currentIndex);
+            if (current != null) {
+                playedIds.add(key(current, currentIndex));
+                lastPlayedOriginalIndex = currentIndex;
+                lastPlayedId = current.id;
+            }
+        } else {
+            lastPlayedOriginalIndex = -1;
+            lastPlayedId = null;
         }
+
+        rebuildWorking(false);
     }
 
     /**
-     * Returns the next original-queue index to play.
-     * Uses the cumulative-sweep random-permutation algorithm: pick a random
-     * index in [position, size-1], swap it to position, return it, advance
-     * the pointer. When exhausted, rebuild from the original queue.
+     * Returns the next original-queue index.
+     *
+     * Within a cycle this is the cumulative-sweep algorithm:
+     * choose from the unconsumed suffix, swap into the frontier, advance.
      */
     public synchronized int nextIndex() {
-        if (originalOrder.isEmpty() || working.isEmpty()) {
+        if (originalOrder.isEmpty()) {
             return -1;
         }
 
-        // Rebuild when exhausted.
-        if (cyclePosition >= working.size()) {
-            resetWorking();
-            cyclePosition = 0;
-
-            // Avoid starting the new permutation with the immediately previous
-            // track when enough tracks exist.
-            if (base.size() > 1
-                    && lastPlayedOriginalIndex >= 0
-                    && lastPlayedOriginalIndex < base.size()) {
-                if (working.size() > 1 && working.get(0) == lastPlayedOriginalIndex) {
-                    // Swap with another distinct position.
-                    int swapWith = -1;
-                    for (int i = 1; i < working.size(); i++) {
-                        if (working.get(i) != lastPlayedOriginalIndex) {
-                            swapWith = i;
-                            break;
-                        }
-                    }
-                    if (swapWith >= 0) {
-                        Collections.swap(working, 0, swapWith);
-                    }
-                }
-            }
+        if (position >= working.size()) {
+            // A full cycle has completed. Start a fresh permutation.
+            playedIds.clear();
+            rebuildWorking(true);
         }
 
-        int range = working.size() - cyclePosition;
-        int randomIndex = cyclePosition + rng.nextInt(range == 0 ? 1 : range);
+        if (working.isEmpty()) {
+            // Single-track queue or an otherwise empty eligible set.
+            working.clear();
+            for (int i = 0; i < originalOrder.size(); i++) {
+                working.add(i);
+            }
+            position = 0;
+        }
 
-        // Swap the chosen element into the current frontier slot.
-        Collections.swap(working, cyclePosition, randomIndex);
-        int value = working.get(cyclePosition);
-        cyclePosition++;
+        int randomIndex = position + rng.nextInt(working.size() - position);
+        Collections.swap(working, position, randomIndex);
+
+        int value = working.get(position);
+        position++;
+
         lastPlayedOriginalIndex = value;
+        Track selected = originalOrder.get(value);
+        lastPlayedId = selected != null ? selected.id : null;
+        playedIds.add(key(selected, value));
+
         return value;
     }
 
-    /**
-     * Peeks at the next track index without advancing.
-     */
+    /** Returns the next original queue index without advancing the permutation. */
     public synchronized int peekIndex() {
-        if (originalOrder.isEmpty() || working.isEmpty()) {
+        if (originalOrder.isEmpty()) {
             return -1;
         }
-        if (cyclePosition >= working.size()) {
-            return 0;
+        if (position >= working.size()) {
+            return -1;
         }
-        return cyclePosition;
+        return working.get(position);
     }
 
     /**
-     * Called when the queue is modified (track added/removed).
-     * Rebuilds the permutation from the current queue state.
-     *
-     * @param tracks       the updated queue
-     * @param currentIndex the currently playing track index
+     * Called after queue mutation. Tracks that were already consumed in the
+     * current cycle stay consumed when their stable ids still exist.
      */
     public synchronized void onQueueChanged(List<Track> tracks, int currentIndex) {
-        originalOrder.clear();
-        originalOrder.addAll(tracks);
-        lastPlayedOriginalIndex = currentIndex;
-        rebuildBase();
-        resetWorking();
-        cyclePosition = 0;
+        Set<String> oldPlayed = new HashSet<>(playedIds);
+        String oldLastId = lastPlayedId;
+
+        replaceQueue(tracks);
+        playedIds.clear();
+
+        for (int i = 0; i < originalOrder.size(); i++) {
+            Track track = originalOrder.get(i);
+            if (oldPlayed.contains(key(track, i))) {
+                playedIds.add(key(track, i));
+            }
+        }
+
+        if (isValidIndex(currentIndex)) {
+            Track current = originalOrder.get(currentIndex);
+            if (current != null) {
+                playedIds.add(key(current, currentIndex));
+                lastPlayedOriginalIndex = currentIndex;
+                lastPlayedId = current.id;
+            }
+        } else {
+            // Keep the previous last id only if that track still exists.
+            lastPlayedId = containsId(oldLastId) ? oldLastId : null;
+            lastPlayedOriginalIndex = findId(lastPlayedId);
+        }
+
+        rebuildWorking(false);
     }
 
     /**
-     * Moves the given original index to the front of the permutation
-     * (used when the user manually selects a track).
+     * Marks a manually selected track as played for the current cycle and makes
+     * the remaining queue the next shuffle pool.
      */
     public synchronized void selectTrack(int originalIndex) {
-        lastPlayedOriginalIndex = originalIndex;
-        if (originalOrder.isEmpty()) {
+        if (!isValidIndex(originalIndex)) {
             return;
         }
-        // Rebuild with the manually selected track at the front.
-        rebuildBase();
-        int selectedPos = base.indexOf(originalIndex);
-        if (selectedPos > 0) {
-            Integer sel = base.remove(selectedPos);
-            base.add(0, sel);
-        }
-        resetWorking();
-        cyclePosition = 1;
+
+        Track selected = originalOrder.get(originalIndex);
+        playedIds.add(key(selected, originalIndex));
+        lastPlayedOriginalIndex = originalIndex;
+        lastPlayedId = selected != null ? selected.id : null;
+
+        rebuildWorking(false);
     }
 
-    /** Whether shuffle is currently active. */
-    public boolean isActive() {
-        return !originalOrder.isEmpty() && !working.isEmpty();
+    public synchronized boolean isActive() {
+        return !originalOrder.isEmpty();
     }
 
-    /** Resets all state (called when shuffle is turned off). */
     public synchronized void deactivate() {
         originalOrder.clear();
-        base.clear();
         working.clear();
+        playedIds.clear();
+        position = 0;
         lastPlayedOriginalIndex = -1;
-        cyclePosition = 0;
+        lastPlayedId = null;
+    }
+
+    public synchronized int size() {
+        return originalOrder.size();
+    }
+
+    private void replaceQueue(List<Track> tracks) {
+        originalOrder.clear();
+        if (tracks != null) {
+            originalOrder.addAll(tracks);
+        }
+        working.clear();
         position = 0;
     }
 
-    /** Number of tracks in the permutation. */
-    public int size() {
-        return working.size();
-    }
+    /**
+     * Rebuilds the unplayed pool.
+     *
+     * @param newCycle when true, avoid starting with the immediately previous
+     *                 track where another track exists.
+     */
+    private void rebuildWorking(boolean newCycle) {
+        working.clear();
+        position = 0;
 
-    // ---- Internal ----
-
-    private void rebuildBase() {
-        base.clear();
         for (int i = 0; i < originalOrder.size(); i++) {
-            base.add(i);
+            Track t = originalOrder.get(i);
+            if (!playedIds.contains(key(t, i))) {
+                working.add(i);
+            }
+        }
+
+        if (working.isEmpty() && !originalOrder.isEmpty()) {
+            // No unplayed tracks remain in this cycle. If there are multiple
+            // tracks, start the next cycle while avoiding the previous track.
+            playedIds.clear();
+            for (int i = 0; i < originalOrder.size(); i++) {
+                Track t = originalOrder.get(i);
+                if (newCycle && originalOrder.size() > 1 && isSameTrack(t, lastPlayedId)) {
+                    continue;
+                }
+                working.add(i);
+            }
+
+            // Defensive fallback for pathological queues where all entries
+            // share a missing/duplicate id.
+            if (working.isEmpty()) {
+                for (int i = 0; i < originalOrder.size(); i++) {
+                    working.add(i);
+                }
+            }
         }
     }
 
-    private void resetWorking() {
-        working.clear();
-        working.addAll(base);
-        position = 0;
+    private boolean isValidIndex(int index) {
+        return index >= 0 && index < originalOrder.size();
+    }
+
+    private String key(Track track, int index) {
+        if (track != null && track.id != null && !track.id.isEmpty()) {
+            return "id:" + track.id;
+        }
+        return "index:" + index;
+    }
+
+    private boolean containsId(String id) {
+        return id != null && findId(id) >= 0;
+    }
+
+    private int findId(String id) {
+        if (id == null) return -1;
+        for (int i = 0; i < originalOrder.size(); i++) {
+            Track t = originalOrder.get(i);
+            if (t != null && id.equals(t.id)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isSameTrack(Track track, String id) {
+        return track != null && id != null && id.equals(track.id);
     }
 }
