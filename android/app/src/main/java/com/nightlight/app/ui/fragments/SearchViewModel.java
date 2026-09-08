@@ -60,6 +60,7 @@ public class SearchViewModel extends AndroidViewModel {
     private final MutableLiveData<UiState> state = new MutableLiveData<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable debounced = this::executeSearch;
+    private final LiveData<List<String>> historyLiveData;
     private final Observer<List<String>> historyObserver = this::onHistoryChanged;
 
     private List<String> recent = new ArrayList<>();
@@ -74,14 +75,15 @@ public class SearchViewModel extends AndroidViewModel {
         super(application);
         this.app = (NightLightApp) application;
         this.music = app.getMusicRepository();
-        app.getLibraryRepository().observeHistoryQueries().observeForever(historyObserver);
+        historyLiveData = app.getLibraryRepository().observeHistoryQueries();
+        historyLiveData.observeForever(historyObserver);
         state.setValue(UiState.idle(recent));
     }
 
     @Override
     protected void onCleared() {
         handler.removeCallbacksAndMessages(null);
-        app.getLibraryRepository().observeHistoryQueries().removeObserver(historyObserver);
+        historyLiveData.removeObserver(historyObserver);
         super.onCleared();
     }
 
