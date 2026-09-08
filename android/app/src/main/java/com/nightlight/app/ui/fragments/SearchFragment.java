@@ -86,9 +86,10 @@ public final class SearchFragment extends Fragment {
         resultsAdapter = new TrackAdapter(new TrackAdapter.Callbacks() {
             @Override
             public void onTrackClick(Track track) {
-                // Collapse remix/acoustic/slowed variants so shuffle and
-                // auto-next play varied songs, then queue the clean list.
-                List<Track> queue = TrackPlayer.dedupeVariants(resultsAdapter.getCurrentList());
+                // Search results are an explicit user query. Preserve every
+                // returned variant so tapping "Acoustic" actually plays Acoustic
+                // and the active queue matches what the user searched for.
+                List<Track> queue = new java.util.ArrayList<>(resultsAdapter.getCurrentList());
                 TrackPlayer.play(requireContext(), queue, indexOf(queue, track));
                 hideKeyboard();
             }
