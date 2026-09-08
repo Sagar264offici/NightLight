@@ -43,7 +43,6 @@ public abstract class AppDatabase extends RoomDatabase {
                 if (instance == null) {
                     instance = Room.databaseBuilder(context.getApplicationContext(), AppDatabase.class, "nightlight.db")
                             .addMigrations(MIGRATION_1_2)
-                            .fallbackToDestructiveMigration()
                             .build();
                 }
             }
