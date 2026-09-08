@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ScheduledFuture;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -58,6 +59,8 @@ public final class ListenTogether {
     private final AtomicReference<String> activeCode = new AtomicReference<>(null);
     private final AtomicBoolean hosting = new AtomicBoolean(false);
     private final AtomicLong lastPublished = new AtomicLong(0);
+    private volatile ScheduledFuture<?> hostPublishFuture;
+    private volatile ScheduledFuture<?> followerPollFuture;
 
     // Chat state
     private final AtomicLong lastChatPoll = new AtomicLong(0);
@@ -178,6 +181,7 @@ public final class ListenTogether {
     // ---- Hosting ----
 
     public void startHosting(Context context, CodeCallback callback) {
+        stopIfActive();
         appContext = context.getApplicationContext();
         final PlaybackSnapshot snap = PlaybackManager.get(context).getSnapshot();
         final Track track = snap != null ? snap.current : null;
@@ -188,7 +192,8 @@ public final class ListenTogether {
         executor.execute(() -> {
             SessionsDtos.CreateRequest req = new SessionsDtos.CreateRequest();
             req.deviceId = TokenStore.getDeviceId();
-            req.name = "Ash";
+            req.name = com.nightlight.app.util.AccountPrefs.email(context) != null
+                ? com.nightlight.app.util.AccountPrefs.email(context) : "Host";
             req.track = toSnapshot(track);
             try {
                 ApiResponse<SessionsDtos.SessionDto> body =
@@ -232,10 +237,28 @@ public final class ListenTogether {
         chatMessages.clear();
         lastChatPoll.set(0);
         stopChatPolling();
+        ScheduledFuture<?> host = hostPublishFuture;
+        if (host != null) {
+            host.cancel(false);
+            hostPublishFuture = null;
+        }
+        ScheduledFuture<?> follower = followerPollFuture;
+        if (follower != null) {
+            follower.cancel(false);
+            followerPollFuture = null;
+        }
+    }
+
+    private void stopIfActive() {
+        if (activeCode.get() != null) {
+            stop();
+        }
     }
 
     private void scheduleHostPublish() {
-        executor.scheduleAtFixedRate(() -> publishState(), POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> old = hostPublishFuture;
+        if (old != null) old.cancel(false);
+        hostPublishFuture = executor.scheduleAtFixedRate(() -> publishState(), POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
     }
 
     private void publishState() {
@@ -276,6 +299,7 @@ public final class ListenTogether {
                     return;
                 }
                 final SessionsDtos.SessionDto session = body.data;
+                stopIfActive();
                 activeCode.set(session.code);
                 hosting.set(false);
                 scheduleFollowerPoll();
@@ -294,7 +318,9 @@ public final class ListenTogether {
     }
 
     private void scheduleFollowerPoll() {
-        executor.scheduleAtFixedRate(this::follow, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> old = followerPollFuture;
+        if (old != null) old.cancel(false);
+        followerPollFuture = executor.scheduleAtFixedRate(this::follow, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
     }
 
     private void follow() {
@@ -335,7 +361,12 @@ public final class ListenTogether {
             dto.year = remote.track.year;
             Track snapshot = Track.fromSnapshot(dto);
             TrackPlayer.play(appContext, Collections.singletonList(snapshot), 0);
-            // First seek comes in on the next tick once the track is loaded.
+            if (!remote.playing) {
+                final Context pauseContext = appContext;
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> PlaybackManager.get(pauseContext).pause(), 350);
+            }
+            // First position correction comes on the next follower tick.
             return;
         }
 
@@ -358,7 +389,12 @@ public final class ListenTogether {
         }
         if (!remote.playing && local.isPlaying) {
             Log.d(TAG, "follow action=pause");
-            PlaybackManager.get(appContext).togglePlayPause();
+            PlaybackManager.get(appContext).pause();
+            return;
+        }
+        if (!remote.playing && Math.abs(local.position - expected) > DRIFT_TOLERANCE_MS) {
+            Log.d(TAG, "follow action=seek paused to " + expected);
+            PlaybackManager.get(appContext).seekTo(Math.max(0, expected));
             return;
         }
         if (remote.playing && Math.abs(local.position - expected) > DRIFT_TOLERANCE_MS) {
