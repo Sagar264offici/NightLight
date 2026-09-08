@@ -153,7 +153,10 @@ export class SessionsRepository {
     }
     await this.collection().updateOne(
       { code },
-      { $push: { messages: { $each: [message], $slice: -MAX_CHAT_MESSAGES } } } as never
+      {
+        $push: { messages: { $each: [message], $slice: -MAX_CHAT_MESSAGES } },
+        $set: { updatedAt: now, 'state.updatedAt': now }
+      } as never
     )
     return message
   }
