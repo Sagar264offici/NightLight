@@ -198,7 +198,13 @@ public final class PlaybackManager {
             public void onPlaybackStateChanged(int playbackState) {
                 handleTrackStart();
                 if (playbackState == Player.STATE_ENDED) {
-                    radioContinue();
+                    if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))
+                            && controller != null
+                            && controller.getRepeatMode() == Player.REPEAT_MODE_OFF) {
+                        advanceNormalAtEnd();
+                    } else {
+                        radioContinue();
+                    }
                 }
                 publish(true);
             }
@@ -285,10 +291,12 @@ public final class PlaybackManager {
             return;
         }
         List<MediaItem> items = new ArrayList<>();
+        List<Track> playableTracks = new ArrayList<>();
         for (Track track : tracks) {
-            if (track.streamUrl == null) {
+            if (track == null || track.streamUrl == null || track.streamUrl.isEmpty()) {
                 continue;
             }
+            playableTracks.add(track);
             items.add(toMediaItem(track));
         }
         if (items.isEmpty()) {
@@ -300,7 +308,7 @@ public final class PlaybackManager {
         controller.play();
         // If NORMAL shuffle is active, activate the permutation engine on the new queue.
         if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))) {
-            normalShuffle.activate(tracks, start);
+            normalShuffle.activate(playableTracks, start);
         }
     }
 
@@ -627,6 +635,11 @@ public final class PlaybackManager {
         if (controller == null || radioBusy) {
             return;
         }
+        // RANDOM owns the current queue. Never fall through to radio/
+        // recommendations when the queue reaches its end.
+        if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app.getApplicationContext()))) {
+            return;
+        }
         // Off mode: no radio, no auto-continue.
         if (ShufflePrefs.isOff(app.getApplicationContext())) {
             return;
@@ -644,6 +657,23 @@ public final class PlaybackManager {
         int gen = smartGeneration.get();
         // Give the UI a moment to surface the ended state, then continue.
         main.postDelayed(() -> fetchRadio(seed, 30, false, gen), 400);
+    }
+
+    /**
+     * Advances RANDOM mode at natural queue exhaustion. This path is strictly
+     * local: it must never invoke search, radio, recommendations, or network IO.
+     */
+    private void advanceNormalAtEnd() {
+        if (controller == null) {
+            return;
+        }
+        int targetIndex = normalShuffle.nextIndex();
+        if (targetIndex < 0 || targetIndex >= controller.getMediaItemCount()) {
+            return;
+        }
+        Log.d(TAG, "normal shuffle next at queue end -> index " + targetIndex);
+        controller.seekTo(targetIndex, 0L);
+        controller.play();
     }
 
     /**
