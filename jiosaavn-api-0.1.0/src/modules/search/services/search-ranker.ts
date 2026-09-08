@@ -196,6 +196,23 @@ export function scoreCandidate(
     score += bestArtistScore
   }
 
+  // Fallback whole-query evidence makes reversed/free-form queries work even
+  // when the simple artist/title split is ambiguous (e.g. "Perfect Ed Sheeran"
+  // or "Perfect live Ed Sheeran"). This supplements, rather than replaces,
+  // exact title/artist scoring below.
+  const rawTokens = new Set(normaliseTitle(intent.rawQuery).split(' ').filter((t) => t.length > 1))
+  if (rawTokens.size > 1) {
+    const candidateTokens = new Set(
+      normaliseTitle([candidateTitle, ...candidateArtists].join(' ')).split(' ').filter((t) => t.length > 1)
+    )
+    let hits = 0
+    for (const token of rawTokens) if (candidateTokens.has(token)) hits++
+    const coverage = hits / rawTokens.size
+    if (coverage >= 0.9) score += 4
+    else if (coverage >= 0.75) score += 3
+    else if (coverage >= 0.5) score += 1.5
+  }
+
   // Version matching (0-5 points).
   if (intent.variant && intent.variant !== 'original') {
     // User explicitly requested a variant.
@@ -253,9 +270,15 @@ export function rerankResults<T>(
   const intent = extractIntent(query)
   if (!intent.title) return results // No intent to rank against.
 
-  return [...results].sort((a, b) => {
-    const scoreA = scoreCandidate(intent, extractTitle(a), extractArtists(a), extractVersion(a))
-    const scoreB = scoreCandidate(intent, extractTitle(b), extractArtists(b), extractVersion(b))
-    return scoreB - scoreA
-  })
+  return [...results]
+    .map((result, index) => ({
+      result,
+      index,
+      score: scoreCandidate(intent, extractTitle(result), extractArtists(result), extractVersion(result)),
+    }))
+    .sort((a, b) => {
+      const delta = b.score - a.score
+      return delta !== 0 ? delta : a.index - b.index
+    })
+    .map((entry) => entry.result)
 }
