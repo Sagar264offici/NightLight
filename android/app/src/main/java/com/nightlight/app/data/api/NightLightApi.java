@@ -138,7 +138,7 @@ public interface NightLightApi {
 
     // Chat
     @POST("sessions/{code}/chat")
-    Call<ApiResponse<SessionsDtos.ChatSendResponse>> sendChatMessage(
+    Call<ApiResponse<SessionsDtos.ChatMessage>> sendChatMessage(
             @Path("code") String code, @Body SessionsDtos.ChatSendRequest body);
 
     @GET("sessions/{code}/chat")

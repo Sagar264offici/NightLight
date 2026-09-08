@@ -85,7 +85,7 @@ public final class ListenTogether {
             SessionsDtos.ChatSendRequest req = new SessionsDtos.ChatSendRequest(
                     TokenStore.getDeviceId(), "You", message);
             try {
-                ApiResponse<SessionsDtos.ChatSendResponse> body =
+                ApiResponse<SessionsDtos.ChatMessage> body =
                         ApiClient.nightLightApi(context).sendChatMessage(code, req).execute().body();
                 // Optimistic local add.
                 SessionsDtos.ChatMessage local = new SessionsDtos.ChatMessage();

@@ -66,6 +66,14 @@ export class SessionsService {
     })
   }
 
+  /** Fetch chat messages newer than `after` (timestamp). */
+  async getMessages(code: string, after = 0) {
+    const normalized = this.normalize(code)
+    const session = await this.repo.find(normalized)
+    if (!session) throw new HTTPException(404, { message: 'Session not found' })
+    return this.repo.getMessages(normalized, after)
+  }
+
   private normalize(code: string): string {
     return (code ?? '').trim().toUpperCase().slice(0, 8)
   }

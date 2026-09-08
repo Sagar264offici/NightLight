@@ -173,7 +173,7 @@ export class SessionsRepository {
       members: doc.members ?? [],
       state: doc.state,
       messages: doc.messages ?? [],
-      createdAt: doc.createdAt
+      createdAt: doc.createdAt ?? 0
     }
   }
 }

@@ -226,6 +226,9 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
+    // Intentionally no super call: back either returns to Home or asks for
+    // exit confirmation — never the default finish().
+    @SuppressWarnings("MissingSuperCall")
     @Override
     public void onBackPressed() {
         if (current != homeFragment) {
