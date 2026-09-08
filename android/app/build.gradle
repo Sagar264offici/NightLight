@@ -14,18 +14,21 @@ android {
 
     def releaseStoreFile = rootProject.file('nightlight-release.keystore')
     def releaseStorePass = project.hasProperty('NIGHTLIGHT_STORE_PASSWORD')
-            ? project.property('NIGHTLIGHT_STORE_PASSWORD') : 'nightlight2026'
+            ? project.property('NIGHTLIGHT_STORE_PASSWORD') : System.getenv('NIGHTLIGHT_STORE_PASSWORD')
     def releaseKeyPass = project.hasProperty('NIGHTLIGHT_KEY_PASSWORD')
-            ? project.property('NIGHTLIGHT_KEY_PASSWORD') : 'nightlight2026'
+            ? project.property('NIGHTLIGHT_KEY_PASSWORD') : System.getenv('NIGHTLIGHT_KEY_PASSWORD')
+    def releaseSigningReady = releaseStoreFile.exists()
+            && releaseStorePass != null && !releaseStorePass.isEmpty()
+            && releaseKeyPass != null && !releaseKeyPass.isEmpty()
 
     signingConfigs {
-        // Local self-signed keystore for installable release builds. Replace
-        // with your own Play App Signing key before publishing (see README).
+        // Credentials MUST come from Gradle properties or environment variables.
+        // Never commit signing passwords/default credentials to source.
         release {
             storeFile releaseStoreFile
-            storePassword releaseStorePass
+            storePassword releaseStorePass ?: ''
             keyAlias 'nightlight'
-            keyPassword releaseKeyPass
+            keyPassword releaseKeyPass ?: ''
         }
     }
 
@@ -51,7 +54,11 @@ android {
             buildConfigField 'String', 'API_BASE_URL', "\"${nightlightApiUrl}\""
         }
         release {
-            signingConfig signingConfigs.release
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn("NightLight release APK will be unsigned: provide NIGHTLIGHT_STORE_PASSWORD and NIGHTLIGHT_KEY_PASSWORD and a valid nightlight-release.keystore to sign it.")
+            }
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
