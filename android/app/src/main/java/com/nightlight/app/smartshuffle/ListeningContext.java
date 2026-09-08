@@ -98,10 +98,28 @@ public final class ListeningContext {
     }
 
     static double evidence(String[] words, String hay) {
+        if (words == null || hay == null || hay.isEmpty()) {
+            return 0;
+        }
         double conf = 0;
+        java.util.Set<String> tokens = new java.util.HashSet<>(
+                java.util.Arrays.asList(hay.split(" ")));
         for (String kw : words) {
-            if (hay.contains(kw)) {
-                conf += kw.length() >= 5 ? 0.13 : 0.08;
+            if (kw == null || kw.isEmpty()) {
+                continue;
+            }
+            String needle = kw.toLowerCase().trim();
+            boolean hit;
+            if (needle.contains(" ")) {
+                // Preserve multi-word phrases such as "good time" and "ap dhillon".
+                hit = hay.contains(needle);
+            } else {
+                // Whole-token matching prevents short/common words such as
+                // "ho", "hai", "tum" from classifying unrelated songs.
+                hit = tokens.contains(needle);
+            }
+            if (hit) {
+                conf += needle.length() >= 5 ? 0.13 : 0.08;
             }
         }
         return conf;
