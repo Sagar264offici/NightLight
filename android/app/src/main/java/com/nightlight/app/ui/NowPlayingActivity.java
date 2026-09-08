@@ -2,6 +2,7 @@ package com.nightlight.app.ui;
 
 import android.os.Bundle;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -26,6 +27,7 @@ import com.nightlight.app.player.PlaybackSnapshot;
 import com.nightlight.app.ui.adapters.QueueAdapter;
 import com.nightlight.app.ui.fragments.NowPlayingViewModel;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -46,6 +48,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
     private ImageButton likeIcon;
     private View artworkStage;
     private View artworkRing;
+    private View chatButton;
 
     private boolean userDraggingSeek;
     private boolean artworkSized;
@@ -128,6 +131,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
             }
         });
         findViewById(R.id.np_queue).setOnClickListener(v -> showQueueSheet());
+        chatButton = findViewById(R.id.np_chat);
+        chatButton.setOnClickListener(v -> showChatSheet());
+        // Show chat button only when a Listen Together session is active.
+        updateChatButtonVisibility();
 
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -202,6 +209,11 @@ public final class NowPlayingActivity extends AppCompatActivity {
             ambient.stop();
             ambient = null;
         }
+    }
+
+    private void updateChatButtonVisibility() {
+        boolean active = com.nightlight.app.player.ListenTogether.get().isActive();
+        chatButton.setVisibility(active ? View.VISIBLE : View.GONE);
     }
 
     private void render(PlaybackSnapshot s) {
@@ -393,5 +405,163 @@ public final class NowPlayingActivity extends AppCompatActivity {
 
         sheet.setContentView(view);
         sheet.show();
+    }
+
+    /**
+     * Compact chat bottom sheet for Listen Together sessions.
+     * Shows message list, text input, send button.
+     * Opening chat does NOT stop playback.
+     */
+    private void showChatSheet() {
+        com.nightlight.app.player.ListenTogether lt = com.nightlight.app.player.ListenTogether.get();
+        if (!lt.isActive()) {
+            Toast.makeText(this, "No active session", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+
+        // Build chat UI programmatically (no new XML layout needed).
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(16f * getResources().getDisplayMetrics().density);
+        root.setPadding(pad, pad, pad, pad);
+        root.setBackgroundColor(android.graphics.Color.parseColor("#E60A0C1A"));
+
+        // Header
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        TextView headerText = new TextView(this);
+        headerText.setText("Listening Together");
+        headerText.setTextColor(getColor(R.color.nightlight_cream));
+        headerText.setTextSize(16f);
+        headerText.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        header.addView(headerText, headerLp);
+
+        TextView sessionCode = new TextView(this);
+        sessionCode.setText(lt.activeCode());
+        sessionCode.setTextColor(getColor(R.color.nightlight_gold));
+        sessionCode.setTextSize(12f);
+        sessionCode.setTypeface(android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD));
+        header.addView(sessionCode);
+
+        root.addView(header);
+
+        // Message list
+        RecyclerView messageList = new RecyclerView(this);
+        LinearLayoutManager lm = new LinearLayoutManager(this);
+        lm.setStackFromEnd(true);
+        messageList.setLayoutManager(lm);
+        messageList.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        LinearLayout.LayoutParams listLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        listLp.topMargin = Math.round(8f * getResources().getDisplayMetrics().density);
+        listLp.bottomMargin = Math.round(8f * getResources().getDisplayMetrics().density);
+        root.addView(messageList, listLp);
+
+        // Simple message adapter
+        List<com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage> messages =
+                new ArrayList<>(lt.getChatMessages());
+        RecyclerView.Adapter<?> adapter = new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            @Override
+            public int getItemCount() { return messages.size(); }
+            @Override
+            public RecyclerView.ViewHolder onCreateViewHolder(android.view.ViewGroup parent, int viewType) {
+                TextView tv = new TextView(NowPlayingActivity.this);
+                tv.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.WRAP_CONTENT));
+                return new RecyclerView.ViewHolder(tv) {};
+            }
+            @Override
+            public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
+                TextView tv = (TextView) holder.itemView;
+                com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage msg = messages.get(position);
+                boolean isMe = msg.deviceId != null
+                        && msg.deviceId.equals(com.nightlight.app.util.TokenStore.getDeviceId());
+                tv.setText((isMe ? "You" : msg.name) + ": " + msg.message);
+                tv.setTextColor(getColor(isMe ? R.color.nightlight_gold : R.color.nightlight_cream));
+                tv.setTextSize(14f);
+                int dp4 = Math.round(4f * getResources().getDisplayMetrics().density);
+                int dp8 = Math.round(8f * getResources().getDisplayMetrics().density);
+                tv.setPadding(dp8, dp4, dp8, dp4);
+            }
+        };
+        messageList.setAdapter(adapter);
+
+        // Scroll to bottom on new messages
+        lt.setChatListener(msgs -> {
+            messages.clear();
+            messages.addAll(msgs);
+            adapter.notifyDataSetChanged();
+            if (!messages.isEmpty()) {
+                messageList.smoothScrollToPosition(messages.size() - 1);
+            }
+        });
+
+        // Input row
+        LinearLayout inputRow = new LinearLayout(this);
+        inputRow.setOrientation(LinearLayout.HORIZONTAL);
+        inputRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams inputRowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        inputRow.setLayoutParams(inputRowLp);
+
+        EditText input = new EditText(this);
+        input.setHint("Type a message…");
+        input.setSingleLine(true);
+        input.setTextColor(getColor(R.color.nightlight_cream));
+        input.setHintTextColor(getColor(R.color.nightlight_cream_dim));
+        input.setTextSize(14f);
+        android.graphics.drawable.GradientDrawable inputBg = new android.graphics.drawable.GradientDrawable();
+        inputBg.setColor(android.graphics.Color.parseColor("#1A121B3D"));
+        inputBg.setCornerRadius(Math.round(20f * getResources().getDisplayMetrics().density));
+        inputBg.setStroke(Math.round(1f * getResources().getDisplayMetrics().density),
+                android.graphics.Color.parseColor("#33FFFFFF"));
+        input.setBackground(inputBg);
+        int inputPad = Math.round(12f * getResources().getDisplayMetrics().density);
+        input.setPadding(inputPad, inputPad, inputPad, inputPad);
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        inputLp.setMarginEnd(Math.round(8f * getResources().getDisplayMetrics().density));
+        inputRow.addView(input, inputLp);
+
+        TextView sendBtn = new TextView(this);
+        sendBtn.setText("Send");
+        sendBtn.setTextColor(getColor(R.color.nightlight_cream));
+        sendBtn.setTextSize(14f);
+        sendBtn.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+        sendBtn.setGravity(android.view.Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable sendBg = new android.graphics.drawable.GradientDrawable();
+        sendBg.setColor(getColor(R.color.nightlight_blue));
+        sendBg.setCornerRadius(Math.round(20f * getResources().getDisplayMetrics().density));
+        sendBtn.setBackground(sendBg);
+        int sendPadH = Math.round(16f * getResources().getDisplayMetrics().density);
+        int sendPadV = Math.round(10f * getResources().getDisplayMetrics().density);
+        sendBtn.setPadding(sendPadH, sendPadV, sendPadH, sendPadV);
+        sendBtn.setOnClickListener(v -> {
+            String msg = input.getText().toString().trim();
+            if (msg.isEmpty()) return;
+            lt.sendChatMessage(this, msg, null);
+            input.setText("");
+        });
+        inputRow.addView(sendBtn);
+
+        root.addView(inputRow);
+
+        sheet.setContentView(root);
+        sheet.setOnDismissListener(d -> {
+            lt.setChatListener(null);
+        });
+        sheet.show();
+
+        // Scroll to current position
+        if (!messages.isEmpty()) {
+            messageList.scrollToPosition(messages.size() - 1);
+        }
     }
 }

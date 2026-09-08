@@ -34,6 +34,7 @@ export class SessionsController implements Routes {
   public initRoutes() {
     this.controller.use('/create', rateLimit({ limit: 20, windowMs: 60_000 }))
     this.controller.use('/join', rateLimit({ limit: 60, windowMs: 60_000 }))
+    this.controller.use('/chat', rateLimit({ limit: 30, windowMs: 60_000 }))
 
     this.controller.openapi(
       createRoute({
@@ -137,6 +138,68 @@ export class SessionsController implements Routes {
         return ctx.json({
           success: true,
           data: await this.sessionsService.updateState(code, deviceId, { track, positionMs, playing })
+        })
+      }
+    )
+
+    // ---- Chat ----
+
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/:code/chat',
+        tags: ['Sessions'],
+        summary: 'Send a chat message in a session',
+        operationId: 'sendChatMessage',
+        request: {
+          params: CodeParam,
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  deviceId: z.string().min(4).max(128),
+                  name: z.string().max(60).optional().default('Friend'),
+                  message: z.string().min(1).max(280)
+                })
+              }
+            }
+          }
+        },
+        responses: { 200: { description: 'Message sent' } }
+      }),
+      async (ctx) => {
+        const { code } = ctx.req.valid('param')
+        const { deviceId, name, message } = ctx.req.valid('json')
+        return ctx.json({
+          success: true,
+          data: await this.sessionsService.sendMessage(code, deviceId, name, message)
+        })
+      }
+    )
+
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/:code/chat',
+        tags: ['Sessions'],
+        summary: 'Poll for new chat messages since a timestamp',
+        operationId: 'getChatMessages',
+        request: {
+          params: CodeParam,
+          query: z.object({
+            deviceId: z.string().min(4).max(128),
+            since: z.string().optional().default('0')
+          })
+        },
+        responses: { 200: { description: 'New chat messages' } }
+      }),
+      async (ctx) => {
+        const { code } = ctx.req.valid('param')
+        const { deviceId, since } = ctx.req.valid('query')
+        const sinceNum = parseInt(since, 10) || 0
+        return ctx.json({
+          success: true,
+          data: await this.sessionsService.getMessages(code, deviceId, sinceNum)
         })
       }
     )

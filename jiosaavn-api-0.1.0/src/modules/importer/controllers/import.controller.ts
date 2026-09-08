@@ -9,7 +9,7 @@ const ImportBody = z.object({
     description: 'Public Spotify or YouTube playlist URL',
     example: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'
   }),
-  limit: z.number().int().min(1).max(100).optional().default(60)
+  limit: z.number().int().min(1).max(200).optional().default(200)
 })
 
 /**
@@ -51,6 +51,7 @@ export class ImportController implements Routes {
                     source: z.string(),
                     playlistName: z.string(),
                     totalTracks: z.number(),
+                    sourceTotal: z.number().optional(),
                     matched: z.number(),
                     unmatched: z.array(z.string()),
                     results: z.array(z.record(z.string(), z.unknown()))

@@ -1,6 +1,5 @@
 package com.nightlight.app.ui;
 
-import android.animation.ObjectAnimator;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -10,12 +9,11 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -28,24 +26,15 @@ import com.nightlight.app.util.AccountPrefs;
 import java.util.regex.Pattern;
 
 /**
- * NightLight authentication hub.
- *
- * Entry screen: Continue with Email (opens Firebase create-account) /
- * Continue as Guest as primary options, with Create Account / Login / Forgot
- * Password as secondary links. Identity = Firebase Auth (free for all users;
- * Google delivers verification/reset email); sessions = existing NightLight
- * hashed-token system via /auth/firebase/exchange. The legacy backend OTP
- * flow remains available for accounts created that way. Guests never receive
- * a server token, so no server account can be created for them.
+ * NightLight sign-in screen — matches reference design:
+ *   Dark background → Lock icon → Sign In → Fields → Remember me + Forgot → Button → Sign Up
  */
 public final class LoginActivity extends AppCompatActivity {
 
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$");
 
-    /** Launch extra: open directly on a specific auth mode. */
     public static final String EXTRA_MODE = "extra_mode";
-
     public static final int MODE_ENTRY = 0;
     public static final int MODE_OTP = 1;
     public static final int MODE_CREATE = 2;
@@ -56,32 +45,44 @@ public final class LoginActivity extends AppCompatActivity {
 
     private AuthRepository auth;
     private LinearLayout root;
-    private ScrollView scroller;
-    private LinearLayout content;
 
-    private TextView stepTitle;
-    private TextView stepSubtitle;
-    private TextView errorText;
+    // Brand
+    private ImageView lockIcon;
+    private TextView heading;
+
+    // Fields
     private EditText emailInput;
     private EditText otpInput;
     private EditText passwordInput;
     private EditText confirmInput;
-    private TextView primaryButtonText;
-    private TextView resend;
-    private android.widget.TextView guestButton;
-    private TextView loginLink;
+
+    // Remember me + forgot
+    private CheckBox rememberMe;
     private TextView forgotLink;
-    private TextView switchAuthLink;
+    private TextView guestLink;
+
+    // Primary CTA
+    private TextView loginButton;
+    private ProgressBar spinner;
+
+    // Secondary
+    private TextView signUpLink;
+    private TextView createLink;
+    private TextView loginLink;
     private android.widget.CheckBox passwordToggle;
     private android.widget.CheckBox confirmToggle;
-    private ProgressBar spinner;
+
+    // Google
     private android.widget.Button googleButton;
     private com.nightlight.app.data.api.GoogleSignInHelper googleHelper;
+
+    // Resend
+    private TextView resend;
+    private TextView errorText;
 
     private int mode = MODE_ENTRY;
     private String email;
     private String resetToken;
-    /** True between Firebase signup and the verified-email exchange. */
     private boolean awaitingEmailVerification;
     private boolean busy;
     private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -93,149 +94,165 @@ public final class LoginActivity extends AppCompatActivity {
         int requested = getIntent().getIntExtra(EXTRA_MODE, MODE_ENTRY);
         mode = (requested >= MODE_ENTRY && requested <= MODE_RESET_NEW) ? requested : MODE_ENTRY;
         if (mode == MODE_CREATE || mode == MODE_LOGIN) {
-            // Coming from the guest conversion prompt: prefill nothing, but
-            // keep the pending flag (set by the prompt) for onboarding.
             AccountPrefs.setPendingGuestConversion(this, true);
         }
         buildUi();
     }
 
     private void buildUi() {
+        // Root: full-screen dark background
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(ambientBackground());
+        root.setBackground(darkBackground());
 
-        scroller = new ScrollView(this);
-        scroller.setFillViewport(true);
+        int hPad = dp(32);
 
-        content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setGravity(Gravity.CENTER_HORIZONTAL);
-        int pad = Math.round(28f * getResources().getDisplayMetrics().density);
-        content.setPadding(pad, Math.round(24f * getResources().getDisplayMetrics().density), pad, pad);
+        // --- NightLight logo ---
+        lockIcon = new ImageView(this);
+        lockIcon.setImageResource(R.drawable.nightlight_logo);
+        LinearLayout.LayoutParams lockLp = new LinearLayout.LayoutParams(dp(64), dp(64));
+        lockLp.gravity = Gravity.CENTER_HORIZONTAL;
+        lockLp.topMargin = dp(60);
+        lockIcon.setLayoutParams(lockLp);
+        root.addView(lockIcon);
 
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.nightlight_logo);
-        int logoSize = Math.round(72f * getResources().getDisplayMetrics().density);
-        logo.setLayoutParams(new LinearLayout.LayoutParams(logoSize, logoSize));
-        logo.setAlpha(0f);
-        logo.animate().alpha(1f).setDuration(500).start();
-        content.addView(logo);
-
-        TextView welcome = new TextView(this);
-        welcome.setText(R.string.login_welcome);
-        welcome.setTextColor(getColor(R.color.nightlight_cream));
-        welcome.setTextSize(26f);
-        welcome.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        welcome.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams welcomeLp = new LinearLayout.LayoutParams(
+        // --- "Sign In" heading ---
+        heading = new TextView(this);
+        heading.setText("Sign In");
+        heading.setTextColor(Color.WHITE);
+        heading.setTextSize(28f);
+        heading.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        heading.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        welcomeLp.topMargin = Math.round(14f * getResources().getDisplayMetrics().density);
-        welcome.setLayoutParams(welcomeLp);
-        content.addView(welcome);
+        headLp.topMargin = dp(12);
+        headLp.bottomMargin = dp(32);
+        heading.setLayoutParams(headLp);
+        root.addView(heading);
 
-        TextView tagline = new TextView(this);
-        tagline.setText(R.string.login_tagline);
-        tagline.setTextColor(getColor(R.color.nightlight_cream_dim));
-        tagline.setTextSize(14f);
-        tagline.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams tagLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tagLp.topMargin = dp(6);
-        tagline.setLayoutParams(tagLp);
-        content.addView(tagline);
+        // --- Email / Username field ---
+        emailInput = iconInput(R.string.login_email_hint, InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+                R.drawable.ic_person_outline);
+        LinearLayout.LayoutParams emailLp = (LinearLayout.LayoutParams) emailInput.getLayoutParams();
+        emailLp.leftMargin = hPad;
+        emailLp.rightMargin = hPad;
+        root.addView(emailInput);
 
-        stepTitle = new TextView(this);
-        stepTitle.setTextColor(getColor(R.color.nightlight_cream));
-        stepTitle.setTextSize(22f);
-        stepTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        stepTitle.setGravity(Gravity.CENTER);
-        stepTitle.setLetterSpacing(0.02f);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.topMargin = Math.round(12f * getResources().getDisplayMetrics().density);
-        stepTitle.setLayoutParams(titleLp);
-        content.addView(stepTitle);
-
-        stepSubtitle = new TextView(this);
-        stepSubtitle.setTextColor(getColor(R.color.nightlight_cream_dim));
-        stepSubtitle.setTextSize(14f);
-        stepSubtitle.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.topMargin = Math.round(8f * getResources().getDisplayMetrics().density);
-        subLp.bottomMargin = Math.round(12f * getResources().getDisplayMetrics().density);
-        stepSubtitle.setLayoutParams(subLp);
-        content.addView(stepSubtitle);
-
-        FrameLayout card = new FrameLayout(this);
-        card.setBackground(glassBackground());
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardLp.topMargin = Math.round(4f * getResources().getDisplayMetrics().density);
-        card.setLayoutParams(cardLp);
-        int cardPad = Math.round(20f * getResources().getDisplayMetrics().density);
-        card.setPadding(cardPad, cardPad, cardPad, cardPad);
-
-        LinearLayout cardContent = new LinearLayout(this);
-        cardContent.setOrientation(LinearLayout.VERTICAL);
-        card.addView(cardContent);
-
-        emailInput = inputField(R.string.login_email_hint, InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        cardContent.addView(emailInput);
-
-        otpInput = inputField(R.string.login_otp_hint, InputType.TYPE_CLASS_NUMBER);
+        // --- OTP field (hidden by default) ---
+        otpInput = plainInput(R.string.login_otp_hint, InputType.TYPE_CLASS_NUMBER);
         otpInput.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
-        cardContent.addView(otpInput);
+        otpInput.setVisibility(View.GONE);
+        LinearLayout.LayoutParams otpLp = (LinearLayout.LayoutParams) otpInput.getLayoutParams();
+        otpLp.leftMargin = hPad;
+        otpLp.rightMargin = hPad;
+        root.addView(otpInput);
 
-        passwordInput = inputField(R.string.login_password_hint, InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        cardContent.addView(passwordInput);
+        // --- Password field ---
+        passwordInput = iconInput(R.string.login_password_hint, InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                R.drawable.ic_lock_outline);
+        passwordInput.setVisibility(View.GONE);
+        LinearLayout.LayoutParams passLp = (LinearLayout.LayoutParams) passwordInput.getLayoutParams();
+        passLp.leftMargin = hPad;
+        passLp.rightMargin = hPad;
+        root.addView(passwordInput);
         passwordToggle = addShowHide(passwordInput);
 
-        confirmInput = inputField(R.string.login_confirm_hint, InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        cardContent.addView(confirmInput);
+        // --- Confirm field (hidden by default) ---
+        confirmInput = iconInput(R.string.login_confirm_hint, InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                R.drawable.ic_lock_outline);
+        confirmInput.setVisibility(View.GONE);
+        LinearLayout.LayoutParams confirmLp = (LinearLayout.LayoutParams) confirmInput.getLayoutParams();
+        confirmLp.leftMargin = hPad;
+        confirmLp.rightMargin = hPad;
+        root.addView(confirmInput);
         confirmToggle = addShowHide(confirmInput);
 
-        LinearLayout buttonRow = new LinearLayout(this);
-        buttonRow.setOrientation(LinearLayout.HORIZONTAL);
-        buttonRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(52f * getResources().getDisplayMetrics().density));
-        rowLp.topMargin = Math.round(14f * getResources().getDisplayMetrics().density);
-        buttonRow.setLayoutParams(rowLp);
+        // --- Remember me + Forgot Password row ---
+        LinearLayout optionsRow = new LinearLayout(this);
+        optionsRow.setOrientation(LinearLayout.HORIZONTAL);
+        optionsRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams optLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        optLp.leftMargin = hPad - dp(8);
+        optLp.rightMargin = hPad;
+        optLp.topMargin = dp(8);
+        optionsRow.setLayoutParams(optLp);
 
-        TextView primaryButton = new TextView(this);
-        primaryButton.setGravity(Gravity.CENTER);
-        primaryButton.setBackground(buttonBackground());
-        primaryButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        primaryButton.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        primaryButtonText = primaryButton;
-        primaryButton.setOnClickListener(v -> onPrimary());
-        buttonRow.addView(primaryButton);
+        rememberMe = new CheckBox(this);
+        rememberMe.setText("Remember me");
+        rememberMe.setTextColor(getColor(R.color.nightlight_cream_dim));
+        rememberMe.setTextSize(13f);
+        rememberMe.setButtonDrawable(R.drawable.ic_person_outline); // placeholder
+        rememberMe.setPadding(0, 0, dp(4), 0);
+        rememberMe.setVisibility(View.GONE); // hidden in entry mode
+        optionsRow.addView(rememberMe);
 
+        forgotLink = new TextView(this);
+        forgotLink.setText("Forgot Password?");
+        forgotLink.setTextColor(getColor(R.color.nightlight_gold));
+        forgotLink.setTextSize(13f);
+        forgotLink.setGravity(Gravity.END);
+        LinearLayout.LayoutParams forgotLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        forgotLink.setLayoutParams(forgotLp);
+        forgotLink.setOnClickListener(v -> setMode(MODE_FORGOT));
+        optionsRow.addView(forgotLink);
+
+        root.addView(optionsRow);
+
+        // --- Error text ---
+        errorText = new TextView(this);
+        errorText.setTextColor(getColor(R.color.nightlight_error));
+        errorText.setTextSize(13f);
+        errorText.setGravity(Gravity.CENTER);
+        errorText.setVisibility(View.GONE);
+        LinearLayout.LayoutParams errLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        errLp.leftMargin = hPad;
+        errLp.rightMargin = hPad;
+        errLp.topMargin = dp(8);
+        errorText.setLayoutParams(errLp);
+        root.addView(errorText);
+
+        // --- LOGIN button ---
+        loginButton = new TextView(this);
+        loginButton.setText("LOGIN");
+        loginButton.setGravity(Gravity.CENTER);
+        loginButton.setTextColor(Color.WHITE);
+        loginButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        loginButton.setTextSize(16f);
+        loginButton.setBackground(loginButtonBg());
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        btnLp.leftMargin = hPad;
+        btnLp.rightMargin = hPad;
+        btnLp.topMargin = dp(16);
+        loginButton.setLayoutParams(btnLp);
+        loginButton.setOnClickListener(v -> onPrimary());
+        root.addView(loginButton);
+
+        // Spinner overlay on button
         spinner = new ProgressBar(this);
         spinner.setVisibility(View.GONE);
-        int spinSize = Math.round(22f * getResources().getDisplayMetrics().density);
+        int spinSize = dp(22);
         LinearLayout.LayoutParams spinLp = new LinearLayout.LayoutParams(spinSize, spinSize);
-        spinLp.setMarginStart(Math.round(14f * getResources().getDisplayMetrics().density));
+        spinLp.gravity = Gravity.CENTER;
         spinner.setLayoutParams(spinLp);
-        buttonRow.addView(spinner);
 
-        cardContent.addView(buttonRow);
-
+        // --- Resend link (OTP modes) ---
         resend = new TextView(this);
         resend.setText(R.string.login_resend);
         resend.setTextColor(getColor(R.color.nightlight_gold));
         resend.setTextSize(13f);
         resend.setGravity(Gravity.CENTER);
-        resend.setPadding(0, Math.round(12f * getResources().getDisplayMetrics().density), 0, 0);
+        resend.setPadding(0, dp(8), 0, 0);
+        resend.setVisibility(View.GONE);
         resend.setOnClickListener(v -> {
             if (mode == MODE_OTP && awaitingEmailVerification) {
                 setBusy(true);
                 auth.resendVerificationEmail(() -> {
                     setBusy(false);
-                    android.widget.Toast.makeText(this,
-                            R.string.login_verify_wait_resent,
+                    android.widget.Toast.makeText(this, R.string.login_verify_wait_resent,
                             android.widget.Toast.LENGTH_SHORT).show();
                     startResendCountdown();
                 }, message -> {
@@ -249,134 +266,96 @@ public final class LoginActivity extends AppCompatActivity {
                 startForgotPassword();
             }
         });
-        cardContent.addView(resend);
+        root.addView(resend);
 
-        // Secondary links live inside the card, under the primary action.
-        LinearLayout links = new LinearLayout(this);
-        links.setOrientation(LinearLayout.VERTICAL);
-        links.setGravity(Gravity.CENTER);
-        links.setPadding(0, dp(6), 0, 0);
+        // --- "Don't have an account? Sign Up" ---
+        signUpLink = new TextView(this);
+        signUpLink.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams signLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        signLp.topMargin = dp(24);
+        signLp.bottomMargin = dp(16);
+        signUpLink.setLayoutParams(signLp);
+        root.addView(signUpLink);
 
-        switchAuthLink = linkTextView();
-        links.addView(switchAuthLink);
+        // --- Create Account link (hidden in entry) ---
+        createLink = new TextView(this);
+        createLink.setTextColor(getColor(R.color.nightlight_gold));
+        createLink.setTextSize(13f);
+        createLink.setGravity(Gravity.CENTER);
+        createLink.setVisibility(View.GONE);
+        root.addView(createLink);
 
-        // Spec: Login is a direct secondary link on the entry screen (not
-        // reachable only through Create Account).
-        loginLink = linkTextView();
-        links.addView(loginLink);
+        // --- Login link (hidden in entry) ---
+        loginLink = new TextView(this);
+        loginLink.setTextColor(getColor(R.color.nightlight_gold));
+        loginLink.setTextSize(13f);
+        loginLink.setGravity(Gravity.CENTER);
+        loginLink.setVisibility(View.GONE);
+        root.addView(loginLink);
 
-        forgotLink = linkTextView();
-        links.addView(forgotLink);
-
-        cardContent.addView(links);
-
-        content.addView(card);
-
-        // Guest is a PRIMARY entry option: outlined button under the main CTA.
-        guestButton = new android.widget.Button(this);
-        guestButton.setAllCaps(false);
-        guestButton.setTextSize(15f);
-        guestButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        guestButton.setTextColor(getColor(R.color.nightlight_cream));
-        guestButton.setBackground(outlineButtonBackground());
-        guestButton.setOnClickListener(v -> enterAsGuest());
-        LinearLayout.LayoutParams guestLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(50f * getResources().getDisplayMetrics().density));
-        guestLp.topMargin = Math.round(10f * getResources().getDisplayMetrics().density);
-        guestButton.setLayoutParams(guestLp);
-        content.addView(guestButton);
-
-        // Continue with Google - primary option under Guest, entry screen only.
+        // --- Google button ---
         googleButton = new android.widget.Button(this);
         googleButton.setAllCaps(false);
-        googleButton.setTextSize(15f);
+        googleButton.setTextSize(14f);
         googleButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         googleButton.setTextColor(getColor(R.color.nightlight_cream));
-        googleButton.setBackground(outlineButtonBackground());
+        googleButton.setBackground(outlinedButtonBg());
         googleButton.setText(R.string.login_google);
+        googleButton.setVisibility(View.GONE);
         googleButton.setOnClickListener(v -> startGoogleSignIn());
         LinearLayout.LayoutParams googleLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(50f * getResources().getDisplayMetrics().density));
-        googleLp.topMargin = Math.round(10f * getResources().getDisplayMetrics().density);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        googleLp.leftMargin = hPad;
+        googleLp.rightMargin = hPad;
+        googleLp.topMargin = dp(12);
         googleButton.setLayoutParams(googleLp);
-        content.addView(googleButton);
-
+        root.addView(googleButton);
         googleHelper = new com.nightlight.app.data.api.GoogleSignInHelper(this);
 
-        errorText = new TextView(this);
-        errorText.setTextColor(getColor(R.color.nightlight_error));
-        errorText.setTextSize(13f);
-        errorText.setGravity(Gravity.CENTER);
-        errorText.setVisibility(View.GONE);
-        LinearLayout.LayoutParams errLp = new LinearLayout.LayoutParams(
+        // --- Guest link (tertiary) ---
+        guestLink = new TextView(this);
+        guestLink.setText(R.string.login_link_guest);
+        guestLink.setTextColor(getColor(R.color.nightlight_cream_dim));
+        guestLink.setTextSize(13f);
+        guestLink.setGravity(Gravity.CENTER);
+        guestLink.setVisibility(View.GONE);
+        guestLink.setPadding(0, dp(8), 0, dp(4));
+        guestLink.setOnClickListener(v -> enterAsGuest());
+        LinearLayout.LayoutParams guestLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        errLp.topMargin = Math.round(14f * getResources().getDisplayMetrics().density);
-        errorText.setLayoutParams(errLp);
-        content.addView(errorText);
+        guestLp.leftMargin = hPad;
+        guestLp.rightMargin = hPad;
+        guestLink.setLayoutParams(guestLp);
+        root.addView(guestLink);
 
-        scroller.addView(content);
-        root.addView(scroller, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
-
         renderStep();
-        emailInput.post(() -> emailInput.requestFocus());
     }
 
-    private int dp(float value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
+    // =========================================================================
+    // Component Builders
+    // =========================================================================
 
-    private android.widget.CheckBox addShowHide(EditText field) {
-        android.widget.CheckBox toggle = new android.widget.CheckBox(this);
-        toggle.setText(R.string.login_show_password);
-        toggle.setTextSize(12f);
-        toggle.setTextColor(getColor(R.color.nightlight_cream_dim));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 0, 0, dp(8));
-        toggle.setLayoutParams(lp);
-        toggle.setOnCheckedChangeListener((b, checked) ->
-                field.setInputType(InputType.TYPE_CLASS_TEXT
-                        | (checked ? InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                        : InputType.TYPE_TEXT_VARIATION_PASSWORD)));
-        // The toggle must sit right after the field it controls: the parent is
-        // cardContent, so find the field's index and insert after it.
-        ViewGroup parent = (ViewGroup) field.getParent();
-        parent.addView(toggle, parent.indexOfChild(field) + 1);
-        return toggle;
-    }
-
-    private TextView linkTextView() {
-        TextView tv = new TextView(this);
-        tv.setTextSize(14f);
-        tv.setTextColor(getColor(R.color.nightlight_gold));
-        tv.setGravity(Gravity.CENTER);
-        tv.setPadding(0, dp(6), 0, dp(6));
-        return tv;
-    }
-
-    private android.graphics.drawable.Drawable ambientBackground() {
-        android.graphics.drawable.GradientDrawable top = new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.parseColor("#141B3D"), Color.parseColor("#0A0A18")});
-        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{top});
-    }
-
-    private EditText inputField(int hintRes, int type) {
+    private EditText iconInput(int hintRes, int type, int iconRes) {
         EditText field = new EditText(this);
         field.setHint(getString(hintRes));
         field.setInputType(InputType.TYPE_CLASS_TEXT | type);
         field.setSingleLine(true);
-        field.setTextColor(getColor(R.color.nightlight_cream));
+        field.setTextColor(Color.WHITE);
         field.setHintTextColor(getColor(R.color.nightlight_cream_dim));
         field.setTextSize(15f);
+        field.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+        // Transparent background with thin border
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#1A121B3D"));
-        bg.setCornerRadius(dp(14));
+        bg.setColor(Color.parseColor("#1AFFFFFF"));
+        bg.setCornerRadius(dp(12));
         bg.setStroke(dp(1), Color.parseColor("#33FFFFFF"));
         field.setBackground(bg);
-        field.setPadding(dp(16), dp(13), dp(16), dp(13));
+        field.setPadding(dp(16), dp(14), dp(16), dp(14));
+        // Left icon
+        field.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
+        field.setCompoundDrawablePadding(dp(12));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(12);
@@ -384,29 +363,70 @@ public final class LoginActivity extends AppCompatActivity {
         return field;
     }
 
-    private GradientDrawable glassBackground() {
+    private EditText plainInput(int hintRes, int type) {
+        EditText field = new EditText(this);
+        field.setHint(getString(hintRes));
+        field.setInputType(InputType.TYPE_CLASS_TEXT | type);
+        field.setSingleLine(true);
+        field.setTextColor(Color.WHITE);
+        field.setHintTextColor(getColor(R.color.nightlight_cream_dim));
+        field.setTextSize(15f);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#E60B1128"));
-        bg.setCornerRadius(dp(22));
-        bg.setStroke(dp(1), Color.parseColor("#26FFFFFF"));
-        return bg;
+        bg.setColor(Color.parseColor("#1AFFFFFF"));
+        bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), Color.parseColor("#33FFFFFF"));
+        field.setBackground(bg);
+        field.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(12);
+        field.setLayoutParams(lp);
+        return field;
     }
 
-    private GradientDrawable outlineButtonBackground() {
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#26FFFFFF"));
-        bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1), Color.parseColor("#55FFFFFF"));
-        return bg;
+    private android.widget.CheckBox addShowHide(EditText field) {
+        android.widget.CheckBox toggle = new android.widget.CheckBox(this);
+        toggle.setText(R.string.login_show_password);
+        toggle.setTextSize(11f);
+        toggle.setTextColor(getColor(R.color.nightlight_cream_dim));
+        toggle.setPadding(0, 0, 0, dp(6));
+        toggle.setOnCheckedChangeListener((b, checked) ->
+                field.setInputType(InputType.TYPE_CLASS_TEXT
+                        | (checked ? InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                        : InputType.TYPE_TEXT_VARIATION_PASSWORD)));
+        ViewGroup parent = (ViewGroup) field.getParent();
+        parent.addView(toggle, parent.indexOfChild(field) + 1);
+        return toggle;
     }
 
-    private GradientDrawable buttonBackground() {
+    private GradientDrawable darkBackground() {
+        return new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.parseColor("#1A0A18"), Color.parseColor("#0A0A18")});
+    }
+
+    private GradientDrawable loginButtonBg() {
         GradientDrawable bg = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{getColor(R.color.nightlight_blue), getColor(R.color.nightlight_blue_glow)});
-        bg.setCornerRadius(dp(16));
+                new int[]{getColor(R.color.nightlight_gold), Color.parseColor("#C9942E")});
+        bg.setCornerRadius(dp(14));
         return bg;
     }
+
+    private GradientDrawable outlinedButtonBg() {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#1AFFFFFF"));
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(1), Color.parseColor("#33FFFFFF"));
+        return bg;
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    // =========================================================================
+    // Step Rendering
+    // =========================================================================
 
     private void renderStep() {
         boolean entry = mode == MODE_ENTRY;
@@ -416,89 +436,89 @@ public final class LoginActivity extends AppCompatActivity {
         boolean forgot = mode == MODE_FORGOT;
         boolean resetOtp = mode == MODE_RESET_OTP;
         boolean resetNew = mode == MODE_RESET_NEW;
-
-        emailInput.setVisibility(entry || forgot || create || login ? View.VISIBLE : View.GONE);
         boolean verifyWait = otp && awaitingEmailVerification;
-        otpInput.setVisibility(otp && !verifyWait || resetOtp ? View.VISIBLE : View.GONE);
+
+        // Logo: always visible
+        lockIcon.setVisibility(View.VISIBLE);
+
+        // Heading
+        if (entry) {
+            heading.setText("Sign In");
+        } else if (otp) {
+            heading.setText(verifyWait ? "Check Email" : "Enter Code");
+        } else if (create) {
+            heading.setText("Create Account");
+        } else if (login) {
+            heading.setText("Welcome Back");
+        } else if (forgot) {
+            heading.setText("Reset Password");
+        } else if (resetOtp) {
+            heading.setText("Check Email");
+        } else if (resetNew) {
+            heading.setText("New Password");
+        }
+
+        // Fields
+        emailInput.setVisibility(entry || forgot || create || login ? View.VISIBLE : View.GONE);
+        otpInput.setVisibility((otp && !verifyWait) || resetOtp ? View.VISIBLE : View.GONE);
         passwordInput.setVisibility(create || login || resetNew ? View.VISIBLE : View.GONE);
         confirmInput.setVisibility(create || resetNew ? View.VISIBLE : View.GONE);
         passwordToggle.setVisibility(passwordInput.getVisibility());
         confirmToggle.setVisibility(confirmInput.getVisibility());
+
+        // Options row
+        forgotLink.setVisibility(entry || login ? View.VISIBLE : View.GONE);
+        rememberMe.setVisibility(View.GONE); // keep hidden for now
+
+        // Resend
         resend.setVisibility(otp || resetOtp ? View.VISIBLE : View.GONE);
 
-        switchAuthLink.setVisibility(entry || login || create ? View.VISIBLE : View.GONE);
-        loginLink.setVisibility(entry ? View.VISIBLE : View.GONE);
-        forgotLink.setVisibility(entry || login ? View.VISIBLE : View.GONE);
-        guestButton.setVisibility(entry ? View.VISIBLE : View.GONE);
-        googleButton.setVisibility(entry ? View.VISIBLE : View.GONE);
+        // Login button text
+        if (entry) loginButton.setText("LOGIN");
+        else if (otp) loginButton.setText(verifyWait ? "CONTINUE" : "VERIFY");
+        else if (create) loginButton.setText("CREATE ACCOUNT");
+        else if (login) loginButton.setText("LOGIN");
+        else if (forgot) loginButton.setText("SEND RESET LINK");
+        else if (resetOtp) loginButton.setText("VERIFY");
+        else if (resetNew) loginButton.setText("SAVE PASSWORD");
 
+        // Bottom links
         if (entry) {
-            stepTitle.setText(R.string.login_title);
-            stepSubtitle.setText(R.string.login_subtitle);
-            primaryButtonText.setText(R.string.login_continue);
-            switchAuthLink.setText(R.string.login_link_create);
-            switchAuthLink.setOnClickListener(v -> setMode(MODE_CREATE));
-            loginLink.setText(R.string.login_link_login);
-            loginLink.setOnClickListener(v -> setMode(MODE_LOGIN));
-            forgotLink.setText(R.string.login_link_forgot);
-            forgotLink.setOnClickListener(v -> setMode(MODE_FORGOT));
-            guestButton.setText(R.string.login_link_guest);
-        } else if (otp) {
-            if (awaitingEmailVerification) {
-                stepTitle.setText(R.string.login_verify_wait_title);
-                stepSubtitle.setText(getString(R.string.login_verify_wait_subtitle, email == null ? "" : email));
-                primaryButtonText.setText(R.string.login_verify_wait_button);
-            } else {
-                stepTitle.setText(R.string.login_otp_title);
-                stepSubtitle.setText(getString(R.string.login_otp_subtitle, email == null ? "" : email));
-                primaryButtonText.setText(R.string.login_verify);
-            }
+            signUpLink.setText("Don't have an account? Sign Up");
+            signUpLink.setOnClickListener(v -> setMode(MODE_CREATE));
         } else if (create) {
-            stepTitle.setText(R.string.login_create_title);
-            stepSubtitle.setText(R.string.login_create_subtitle);
-            primaryButtonText.setText(R.string.login_create_button);
-            switchAuthLink.setText(R.string.login_link_have_account);
-            switchAuthLink.setOnClickListener(v -> setMode(MODE_LOGIN));
-            forgotLink.setText(R.string.login_link_forgot);
-            forgotLink.setOnClickListener(v -> setMode(MODE_FORGOT));
-            confirmInput.post(() -> scroller.smoothScrollTo(0, confirmInput.getBottom()));
+            signUpLink.setText("Already have an account? Sign In");
+            signUpLink.setOnClickListener(v -> setMode(MODE_LOGIN));
         } else if (login) {
-            stepTitle.setText(R.string.login_password_title);
-            stepSubtitle.setText(R.string.login_password_subtitle);
-            primaryButtonText.setText(R.string.login_login_button);
-            switchAuthLink.setText(R.string.login_link_create);
-            switchAuthLink.setOnClickListener(v -> setMode(MODE_CREATE));
-            forgotLink.setText(R.string.login_link_forgot);
-            forgotLink.setOnClickListener(v -> setMode(MODE_FORGOT));
-        } else if (forgot) {
-            stepTitle.setText(R.string.login_forgot_title);
-            stepSubtitle.setText(R.string.login_forgot_subtitle);
-            primaryButtonText.setText(R.string.login_forgot_button);
-        } else if (resetOtp) {
-            stepTitle.setText(R.string.login_reset_otp_title);
-            stepSubtitle.setText(getString(R.string.login_reset_otp_subtitle, email == null ? "" : email));
-            primaryButtonText.setText(R.string.login_verify);
-        } else if (resetNew) {
-            stepTitle.setText(R.string.login_reset_new_title);
-            stepSubtitle.setText(R.string.login_reset_new_subtitle);
-            primaryButtonText.setText(R.string.login_reset_new_button);
+            signUpLink.setText("Don't have an account? Sign Up");
+            signUpLink.setOnClickListener(v -> setMode(MODE_CREATE));
+        } else {
+            signUpLink.setVisibility(View.GONE);
         }
 
-        // Gentle entrance for the step transition.
-        content.animate().alpha(0f).setDuration(120)
-                .withEndAction(() -> {
-                    content.setAlpha(1f);
-                    content.animate().alpha(1f).setDuration(240).start();
-                })
-                .start();
+        // Guest link (tertiary, quiet)
+        guestLink.setVisibility(entry ? View.VISIBLE : View.GONE);
+
+        // Google (entry only)
+        googleButton.setVisibility(entry ? View.VISIBLE : View.GONE);
+
+        // Create / Login links (hidden in entry, shown as alternatives)
+        createLink.setVisibility(View.GONE);
+        loginLink.setVisibility(View.GONE);
+
+        // Subtle entrance
+        root.setAlpha(0.9f);
+        root.animate().alpha(1f).setDuration(150).start();
         setBusy(false);
     }
+
+    // =========================================================================
+    // Auth Logic (unchanged)
+    // =========================================================================
 
     private void setMode(int newMode) {
         mode = newMode;
         hideError();
-        // Fresh fields on every mode change: stale credentials from a previous
-        // step (e.g. the reset form) must never leak into the next one.
         emailInput.setText("");
         otpInput.setText("");
         passwordInput.setText("");
@@ -515,40 +535,19 @@ public final class LoginActivity extends AppCompatActivity {
     }
 
     private void onPrimary() {
-        if (busy) {
-            return;
-        }
+        if (busy) return;
         hideError();
         switch (mode) {
-            case MODE_ENTRY:
-                // Primary CTA opens Firebase create-account (works for every
-                // user; Google delivers the verification email).
-                setMode(MODE_CREATE);
-                break;
+            case MODE_ENTRY: setMode(MODE_CREATE); break;
             case MODE_OTP:
-                if (awaitingEmailVerification) {
-                    completeEmailVerification();
-                } else {
-                    verifyCode(textOf(otpInput), false);
-                }
+                if (awaitingEmailVerification) completeEmailVerification();
+                else verifyCode(textOf(otpInput), false);
                 break;
-            case MODE_CREATE:
-                onCreateAccount();
-                break;
-            case MODE_LOGIN:
-                onLogin();
-                break;
-            case MODE_FORGOT:
-                startForgotPassword();
-                break;
-            case MODE_RESET_OTP:
-                verifyCode(textOf(otpInput), true);
-                break;
-            case MODE_RESET_NEW:
-                onSetNewPassword();
-                break;
-            default:
-                break;
+            case MODE_CREATE: onCreateAccount(); break;
+            case MODE_LOGIN: onLogin(); break;
+            case MODE_FORGOT: startForgotPassword(); break;
+            case MODE_RESET_OTP: verifyCode(textOf(otpInput), true); break;
+            case MODE_RESET_NEW: onSetNewPassword(); break;
         }
     }
 
@@ -556,148 +555,75 @@ public final class LoginActivity extends AppCompatActivity {
         email = textOf(emailInput);
         String password = textOf(passwordInput);
         String confirm = textOf(confirmInput);
-        if (!EMAIL_PATTERN.matcher(email).matches()) {
-            showError(getString(R.string.otp_error_email));
-            return;
-        }
-        if (password.length() < 8) {
-            showError(getString(R.string.login_error_password_weak));
-            return;
-        }
-        if (!password.equals(confirm)) {
-            showError(getString(R.string.login_error_password_mismatch));
-            return;
-        }
+        if (!EMAIL_PATTERN.matcher(email).matches()) { showError(getString(R.string.otp_error_email)); return; }
+        if (password.length() < 8) { showError(getString(R.string.login_error_password_weak)); return; }
+        if (!password.equals(confirm)) { showError(getString(R.string.login_error_password_mismatch)); return; }
         setBusy(true);
         auth.registerPassword(email, password, () -> {
             setBusy(false);
-            // Firebase emailed the verification link. The mailbox is proven
-            // by the user tapping it, then we exchange the verified token.
             awaitingEmailVerification = true;
             setMode(MODE_OTP);
             startResendCountdown();
-        }, message -> {
-            setBusy(false);
-            showError(message);
-        });
+        }, message -> { setBusy(false); showError(message); });
     }
 
-    /** Re-checks verification with Firebase and exchanges for a session. */
-    /** Launches the Google account picker and exchanges the ID token. */
     private void startGoogleSignIn() {
-        if (busy) {
-            return;
-        }
+        if (busy) return;
         hideError();
         setBusy(true);
         googleHelper.signIn(this, (idToken, error) -> {
-            if (error != null) {
-                setBusy(false);
-                showError(error);
-                return;
-            }
-            if (idToken == null) {
-                // User dismissed the picker - not an error.
-                setBusy(false);
-                return;
-            }
+            if (error != null) { setBusy(false); showError(error); return; }
+            if (idToken == null) { setBusy(false); return; }
             auth.loginWithGoogle(idToken, this::onAuthenticated, message -> {
-                setBusy(false);
-                showError(message);
+                setBusy(false); showError(message);
             });
         });
     }
 
     private void completeEmailVerification() {
         setBusy(true);
-        auth.completeRegistration(this::onAuthenticated, message -> {
-            setBusy(false);
-            showError(message);
-        });
+        auth.completeRegistration(this::onAuthenticated, message -> { setBusy(false); showError(message); });
     }
 
     private void requestOtp() {
         setBusy(true);
-        auth.requestOtp(email, () -> {
-            setBusy(false);
-            setMode(MODE_OTP);
-            startResendCountdown();
-        }, message -> {
-            setBusy(false);
-            showError(message);
-        });
+        auth.requestOtp(email, () -> { setBusy(false); setMode(MODE_OTP); startResendCountdown(); },
+                message -> { setBusy(false); showError(message); });
     }
 
     private void onLogin() {
         email = textOf(emailInput);
         String password = textOf(passwordInput);
-        if (email.isEmpty()) {
-            showError(getString(R.string.otp_error_email));
-            return;
-        }
-        if (password.isEmpty()) {
-            showError(getString(R.string.login_error_password_empty));
-            return;
-        }
+        if (email.isEmpty()) { showError(getString(R.string.otp_error_email)); return; }
+        if (password.isEmpty()) { showError(getString(R.string.login_error_password_empty)); return; }
         setBusy(true);
-        auth.loginPassword(email, password, this::onAuthenticated, message -> {
-            setBusy(false);
-            showError(message);
-        });
+        auth.loginPassword(email, password, this::onAuthenticated, message -> { setBusy(false); showError(message); });
     }
 
     private void startForgotPassword() {
-        if (mode != MODE_FORGOT) {
-            email = textOf(emailInput);
-            if (!EMAIL_PATTERN.matcher(email).matches()) {
-                showError(getString(R.string.otp_error_email));
-                return;
-            }
-        } else {
-            email = textOf(emailInput);
-            if (!EMAIL_PATTERN.matcher(email).matches()) {
-                showError(getString(R.string.otp_error_email));
-                return;
-            }
-        }
+        email = textOf(emailInput);
+        if (!EMAIL_PATTERN.matcher(email).matches()) { showError(getString(R.string.otp_error_email)); return; }
         setBusy(true);
         auth.forgotPassword(email, () -> {
             setBusy(false);
-            // Google emailed a reset link; the new password is set in the
-            // browser, then the user returns here to log in.
-            android.widget.Toast.makeText(this,
-                    getString(R.string.login_reset_email_sent, email),
+            android.widget.Toast.makeText(this, getString(R.string.login_reset_email_sent, email),
                     android.widget.Toast.LENGTH_LONG).show();
             setMode(MODE_LOGIN);
-        }, message -> {
-            setBusy(false);
-            showError(message);
-        });
+        }, message -> { setBusy(false); showError(message); });
     }
 
     private void verifyCode(String code, boolean forReset) {
-        if (code.length() != 6) {
-            showError(getString(R.string.otp_error_invalid));
-            return;
-        }
+        if (code.length() != 6) { showError(getString(R.string.otp_error_invalid)); return; }
         setBusy(true);
         if (forReset) {
             auth.verifyResetOtp(email, code, resetToken -> {
                 this.resetToken = resetToken;
                 setBusy(false);
                 setMode(MODE_RESET_NEW);
-            }, message -> {
-                setBusy(false);
-                showError(message);
-                otpInput.setText("");
-                otpInput.requestFocus();
-            });
+            }, message -> { setBusy(false); showError(message); otpInput.setText(""); otpInput.requestFocus(); });
         } else {
             auth.verifyOtp(email, code, this::onAuthenticated, message -> {
-                setBusy(false);
-                showError(message);
-                otpInput.setText("");
-                otpInput.requestFocus();
+                setBusy(false); showError(message); otpInput.setText(""); otpInput.requestFocus();
             });
         }
     }
@@ -705,24 +631,14 @@ public final class LoginActivity extends AppCompatActivity {
     private void onSetNewPassword() {
         String password = textOf(passwordInput);
         String confirm = textOf(confirmInput);
-        if (password.length() < 8) {
-            showError(getString(R.string.login_error_password_weak));
-            return;
-        }
-        if (!password.equals(confirm)) {
-            showError(getString(R.string.login_error_password_mismatch));
-            return;
-        }
+        if (password.length() < 8) { showError(getString(R.string.login_error_password_weak)); return; }
+        if (!password.equals(confirm)) { showError(getString(R.string.login_error_password_mismatch)); return; }
         setBusy(true);
         auth.resetPassword(email, resetToken, password, () -> {
             setBusy(false);
-            // Security default: return to Login, do not auto-login.
             setMode(MODE_LOGIN);
             android.widget.Toast.makeText(this, R.string.login_reset_success, android.widget.Toast.LENGTH_LONG).show();
-        }, message -> {
-            setBusy(false);
-            showError(message);
-        });
+        }, message -> { setBusy(false); showError(message); });
     }
 
     private void onAuthenticated() {
@@ -737,8 +653,35 @@ public final class LoginActivity extends AppCompatActivity {
         finish();
     }
 
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
     private String textOf(EditText field) {
         return field.getText() == null ? "" : field.getText().toString().trim();
+    }
+
+    private void setBusy(boolean value) {
+        busy = value;
+        loginButton.setEnabled(!value);
+        loginButton.setAlpha(value ? 0.6f : 1f);
+        emailInput.setEnabled(!value);
+        otpInput.setEnabled(!value);
+        passwordInput.setEnabled(!value);
+        confirmInput.setEnabled(!value);
+        spinner.setVisibility(value ? View.VISIBLE : View.GONE);
+    }
+
+    private void showError(String message) {
+        if (message == null || message.isEmpty()) return;
+        errorText.setText(message);
+        errorText.setVisibility(View.VISIBLE);
+        errorText.setAlpha(0f);
+        errorText.animate().alpha(1f).setDuration(150).start();
+    }
+
+    private void hideError() {
+        errorText.setVisibility(View.GONE);
     }
 
     private void startResendCountdown() {
@@ -748,14 +691,11 @@ public final class LoginActivity extends AppCompatActivity {
         final Runnable tick = new Runnable() {
             @Override
             public void run() {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
+                if (isFinishing() || isDestroyed()) return;
                 if (remaining[0] <= 0) {
                     resend.setEnabled(true);
                     resend.setTextColor(getColor(R.color.nightlight_gold));
-                    resend.setText(awaitingEmailVerification
-                            ? R.string.login_resend_email : R.string.login_resend);
+                    resend.setText(awaitingEmailVerification ? R.string.login_resend_email : R.string.login_resend);
                 } else {
                     resend.setText(getString(R.string.login_resend_in, remaining[0]));
                     remaining[0]--;
@@ -765,31 +705,6 @@ public final class LoginActivity extends AppCompatActivity {
         };
         handler.removeCallbacksAndMessages(null);
         handler.post(tick);
-    }
-
-    private void setBusy(boolean value) {
-        busy = value;
-        primaryButtonText.setAlpha(value ? 0.35f : 1f);
-        primaryButtonText.setEnabled(!value);
-        emailInput.setEnabled(!value);
-        otpInput.setEnabled(!value);
-        passwordInput.setEnabled(!value);
-        confirmInput.setEnabled(!value);
-        spinner.setVisibility(value ? View.VISIBLE : View.GONE);
-    }
-
-    private void showError(String message) {
-        if (message == null || message.isEmpty()) {
-            return;
-        }
-        errorText.setText(message);
-        errorText.setVisibility(View.VISIBLE);
-        errorText.setAlpha(0f);
-        errorText.animate().alpha(1f).setDuration(180).start();
-    }
-
-    private void hideError() {
-        errorText.setVisibility(View.GONE);
     }
 
     @Override

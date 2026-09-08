@@ -49,4 +49,34 @@ public final class SessionsDtos {
         public int members;
         public SessionState state;
     }
+
+    // Chat DTOs
+
+    public static class ChatSendRequest {
+        public String deviceId;
+        public String name;
+        public String message;
+
+        public ChatSendRequest(String deviceId, String name, String message) {
+            this.deviceId = deviceId;
+            this.name = name;
+            this.message = message;
+        }
+    }
+
+    public static class ChatSendResponse {
+        public boolean ok;
+        public String id;
+    }
+
+    public static class ChatMessage {
+        public String id;
+        public String deviceId;
+        public String name;
+        public String message;
+        public long createdAt;
+    }
+
+    public static class ChatMessagesResponse extends java.util.ArrayList<ChatMessage> {
+    }
 }

@@ -34,6 +34,8 @@ import com.nightlight.app.ui.fragments.LibraryFragment;
 import com.nightlight.app.ui.fragments.SearchFragment;
 import com.nightlight.app.util.NetworkMonitor;
 
+import androidx.activity.OnBackPressedCallback;
+
 import java.util.Set;
 
 /**
@@ -99,6 +101,7 @@ public final class MainActivity extends AppCompatActivity {
 
         setupFragments(nav);
         setupOfflineBanner();
+        setupBackNavigation();
     }
 
     private void setupFragments(BottomNavigationView nav) {
@@ -122,6 +125,10 @@ public final class MainActivity extends AppCompatActivity {
                 show(homeFragment);
             } else if (id == R.id.nav_search) {
                 show(searchFragment);
+                // Open the keyboard on the first Search tap; the fragment
+                // defers until its view is attached to the window so
+                // getWindowToken() is valid.
+                searchFragment.onSearchTabTapped();
             } else if (id == R.id.nav_library) {
                 show(libraryFragment);
             }
@@ -143,6 +150,27 @@ public final class MainActivity extends AppCompatActivity {
     private void setupOfflineBanner() {
         onlineLiveData = NetworkMonitor.get(this).online();
         onlineLiveData.observe(this, onlineObserver);
+    }
+
+    private void setupBackNavigation() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (current != homeFragment) {
+                    // If on Search or Library, return to Home.
+                    ((BottomNavigationView) findViewById(R.id.bottom_nav))
+                            .setSelectedItemId(R.id.nav_home);
+                } else {
+                    // On Home: show exit confirmation.
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                            .setTitle("Leave NightLight?")
+                            .setMessage("Do you really want to quit the app?")
+                            .setPositiveButton("Quit", (d, w) -> finish())
+                            .setNegativeButton("Stay", null)
+                            .show();
+                }
+            }
+        });
     }
 
     private void onConnectivityChanged(Boolean online) {

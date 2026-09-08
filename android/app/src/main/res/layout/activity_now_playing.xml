@@ -365,6 +365,39 @@
                         android:textColor="@color/nightlight_cream_dim"
                         android:textSize="9sp" />
                 </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/np_chat"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:visibility="gone">
+
+                    <ImageButton
+                        android:id="@+id/np_chat_icon"
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:background="@null"
+                        android:contentDescription="Chat in session"
+                        android:padding="2dp"
+                        android:src="@drawable/ic_chat"
+                        app:tint="@color/nightlight_cream" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Chat"
+                        android:textColor="@color/nightlight_cream_dim"
+                        android:textSize="9sp" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

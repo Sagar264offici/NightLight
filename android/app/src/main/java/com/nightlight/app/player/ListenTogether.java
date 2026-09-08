@@ -14,7 +14,9 @@ import com.nightlight.app.ui.common.TrackPlayer;
 import com.nightlight.app.util.AppExecutors;
 import com.nightlight.app.util.TokenStore;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -56,6 +58,92 @@ public final class ListenTogether {
     private final AtomicReference<String> activeCode = new AtomicReference<>(null);
     private final AtomicBoolean hosting = new AtomicBoolean(false);
     private final AtomicLong lastPublished = new AtomicLong(0);
+
+    // Chat state
+    private final AtomicLong lastChatPoll = new AtomicLong(0);
+    private final List<SessionsDtos.ChatMessage> chatMessages =
+            Collections.synchronizedList(new ArrayList<>());
+    private ChatListener chatListener;
+    private ScheduledExecutorService chatExecutor;
+
+    public interface ChatListener {
+        void onMessages(List<SessionsDtos.ChatMessage> messages);
+    }
+
+    public void setChatListener(ChatListener listener) {
+        this.chatListener = listener;
+    }
+
+    public List<SessionsDtos.ChatMessage> getChatMessages() {
+        return new ArrayList<>(chatMessages);
+    }
+
+    public void sendChatMessage(Context context, String message, final com.nightlight.app.data.api.NightLightApi apiCallback) {
+        final String code = activeCode.get();
+        if (code == null) return;
+        executor.execute(() -> {
+            SessionsDtos.ChatSendRequest req = new SessionsDtos.ChatSendRequest(
+                    TokenStore.getDeviceId(), "You", message);
+            try {
+                ApiResponse<SessionsDtos.ChatSendResponse> body =
+                        ApiClient.nightLightApi(context).sendChatMessage(code, req).execute().body();
+                // Optimistic local add.
+                SessionsDtos.ChatMessage local = new SessionsDtos.ChatMessage();
+                local.id = body != null && body.data != null ? body.data.id : String.valueOf(System.currentTimeMillis());
+                local.deviceId = TokenStore.getDeviceId();
+                local.name = "You";
+                local.message = message;
+                local.createdAt = System.currentTimeMillis();
+                chatMessages.add(local);
+                if (chatListener != null) {
+                    List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
+                    AppExecutors.onMain(() -> chatListener.onMessages(snapshot));
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "chat send failed", e);
+            }
+        });
+    }
+
+    public void startChatPolling() {
+        if (chatExecutor != null) return;
+        chatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "lt-chat");
+            t.setDaemon(true);
+            return t;
+        });
+        chatExecutor.scheduleAtFixedRate(this::pollChat, 1500, 2000, TimeUnit.MILLISECONDS);
+    }
+
+    public void stopChatPolling() {
+        if (chatExecutor != null) {
+            chatExecutor.shutdownNow();
+            chatExecutor = null;
+        }
+    }
+
+    private void pollChat() {
+        final String code = activeCode.get();
+        if (code == null || appContext == null) return;
+        try {
+            long since = lastChatPoll.get();
+            ApiResponse<SessionsDtos.ChatMessagesResponse> body =
+                    ApiClient.nightLightApi(appContext).getChatMessages(
+                            code, TokenStore.getDeviceId(), since).execute().body();
+            if (body != null && body.success && body.data != null && !body.data.isEmpty()) {
+                chatMessages.addAll(body.data);
+                lastChatPoll.set(System.currentTimeMillis());
+                if (chatListener != null) {
+                    List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
+                    AppExecutors.onMain(() -> chatListener.onMessages(snapshot));
+                }
+            } else {
+                lastChatPoll.set(System.currentTimeMillis());
+            }
+        } catch (Exception e) {
+            // Transient network gap — retry next tick.
+        }
+    }
 
     private Context appContext;
 
@@ -102,6 +190,7 @@ public final class ListenTogether {
                 lastPublished.set(0);
                 scheduleHostPublish();
                 Log.w(TAG, "hosting session code=" + code);
+                startChatPolling();
                 AppExecutors.onMain(() -> callback.onCode(code));
             } catch (Exception e) {
                 Log.w(TAG, "create failed", e);
@@ -125,6 +214,9 @@ public final class ListenTogether {
     public void stop() {
         hosting.set(false);
         activeCode.set(null);
+        chatMessages.clear();
+        lastChatPoll.set(0);
+        stopChatPolling();
     }
 
     private void scheduleHostPublish() {
@@ -173,6 +265,7 @@ public final class ListenTogether {
                 hosting.set(false);
                 scheduleFollowerPoll();
                 Log.w(TAG, "joined session code=" + session.code);
+                startChatPolling();
                 // Playback calls must run on the MediaController's thread (main).
                 AppExecutors.onMain(() -> {
                     playRemote(session.state);

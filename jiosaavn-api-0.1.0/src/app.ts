@@ -6,6 +6,7 @@ import { prettyJSON } from 'hono/pretty-json'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'
 import { Home } from './pages/home'
+import ListenBridge from './pages/listen-bridge'
 import type { Routes } from '#common/types'
 import { ApiError } from '#common/errors/api-error'
 import { rateLimit } from '#common/middleware/rate-limit'
@@ -43,6 +44,20 @@ export class App {
     })
 
     this.app.route('/', Home)
+    this.app.route('/', ListenBridge)
+
+    // Serve assetlinks.json for Android App Links verification.
+    this.app.get('/.well-known/assetlinks.json', async (ctx) => {
+      const { readFile } = await import('node:fs/promises')
+      try {
+        const content = await readFile(new URL('../.well-known/assetlinks.json', import.meta.url))
+        return new Response(content, {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' }
+        })
+      } catch {
+        return ctx.json({ success: false, message: 'Not found' }, 404)
+      }
+    })
 
     // NightLight branding: serve a local favicon instead of the upstream one.
     // The icon lives next to the compiled dist output, so it resolves whether

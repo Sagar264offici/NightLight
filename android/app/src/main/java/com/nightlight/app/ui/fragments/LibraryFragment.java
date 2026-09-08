@@ -174,62 +174,7 @@ public final class LibraryFragment extends Fragment {
 
     /** Paste a Spotify/YouTube playlist URL; matched songs are saved locally. */
     private void showImportDialog() {
-        EditText input = new EditText(requireContext());
-        input.setHint(R.string.import_url_hint);
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        input.setTextColor(0xFFF5EBDD);
-
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle(R.string.import_title)
-                .setMessage(R.string.import_message)
-                .setView(input)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.import_positive, (d, w) -> {
-                    String url = input.getText() == null ? "" : input.getText().toString().trim();
-                    if (!url.isEmpty()) {
-                        doImport(url);
-                    }
-                })
-                .show();
-    }
-
-    private void doImport(String url) {
-        final ProgressDialog progress = new ProgressDialog(requireContext());
-        progress.setMessage(getString(R.string.import_progress));
-        progress.setIndeterminate(true);
-        progress.setCancelable(false);
-        progress.show();
-
-        playlists.importFromUrl(url, 60, new PlaylistRepository.ImportCallback() {
-            @Override
-            public void onSuccess(String playlistName, List<Track> tracks, List<String> unmatched) {
-                progress.dismiss();
-                if (tracks.isEmpty()) {
-                    Toast.makeText(requireContext(),
-                            "No songs from that playlist could be matched", Toast.LENGTH_LONG).show();
-                    return;
-                }
-                String name = playlistName == null || playlistName.trim().isEmpty()
-                        ? "Imported playlist" : playlistName.trim();
-                playlists.createLocalWithTracks(name, tracks, new PlaylistRepository.ActionCallback() {
-                    @Override
-                    public void onDone(boolean success) {
-                        Toast.makeText(requireContext(),
-                                getString(R.string.import_done, tracks.size(), tracks.size() + unmatched.size()),
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
-            }
-
-            @Override
-            public void onFailure(Throwable error) {
-                progress.dismiss();
-                Toast.makeText(requireContext(),
-                        com.nightlight.app.util.ErrorMapper.toUserMessage(requireContext(), error),
-                        Toast.LENGTH_LONG).show();
-            }
-        });
+        PlaylistDialogs.showImportDialog(requireActivity());
     }
 
     private void showPlaylistMenu(Playlist playlist) {

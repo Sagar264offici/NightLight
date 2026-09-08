@@ -9,6 +9,7 @@ import {
 import { SongModel } from '#modules/songs/models'
 import { SearchService } from '#modules/search/services'
 import type { Routes } from '#common/types'
+import { rerankResults, detectVersion } from '../services/search-ranker'
 
 export class SearchController implements Routes {
   public controller: OpenAPIHono
@@ -123,6 +124,25 @@ export class SearchController implements Routes {
         const { query, page, limit } = ctx.req.valid('query')
 
         const result = await this.searchService.searchSongs({ query, page: page || 0, limit: limit || 10 })
+
+        // Re-rank results to prioritise original versions when user doesn't
+        // request a variant. This fixes the 'Ed Sheeran Perfect' → 'Perfect'
+        // (original) ranking above acoustic/live/remix variants.
+        if (result?.results && result.results.length > 1) {
+          const ranked = rerankResults(
+            query,
+            result.results,
+            (r) => typeof r.name === 'string' ? r.name : '',
+            (r) => {
+              const artists = (r as Record<string, unknown>).artists as Record<string, unknown> | undefined
+              const primary = artists?.primary as Array<{ name?: string }> | undefined
+              if (Array.isArray(primary)) return primary.map((a) => a?.name ?? '').filter(Boolean)
+              return []
+            },
+            (r) => detectVersion(typeof r.name === 'string' ? r.name : '')
+          )
+          return ctx.json({ success: true, data: { ...result, results: ranked } })
+        }
 
         return ctx.json({ success: true, data: result })
       }

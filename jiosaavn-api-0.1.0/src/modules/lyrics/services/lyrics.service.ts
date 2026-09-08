@@ -29,9 +29,28 @@ interface LrcLibEntry {
   albumName?: string
 }
 
+interface RapidApiSong {
+  title?: string
+  artist?: string
+  lyrics?: string
+  album?: string
+}
+
+/** In-memory lyrics cache keyed by normalized title+artist. */
+const lyricsCache = new Map<string, LyricsResult>()
+const CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+const cacheTimestamps = new Map<string, number>()
+
 /** Fetches synchronized lyrics from the free LRCLIB database. */
 export class LyricsService {
   async fetchLyrics({ title, artist, album, durationMs }: LyricsArgs): Promise<LyricsResult> {
+    // Check cache first (keyed by normalized title+artist).
+    const cacheKey = cacheKeyFor(title, artist)
+    const cached = lyricsCache.get(cacheKey)
+    if (cached && Date.now() - (cacheTimestamps.get(cacheKey) ?? 0) < CACHE_TTL_MS) {
+      return cached
+    }
+
     const durationSec = durationMs ? Math.round(durationMs / 1000) : 0
 
     // Title variants: providers often fail on decorated JioSaavn titles like
@@ -78,6 +97,16 @@ export class LyricsService {
       }
     }
 
+    // LRCLIB failed: try RapidAPI as fallback.
+    if (!data || (!data.syncedLyrics && !data.plainLyrics)) {
+      const rapidResult = await this.fetchRapidApiLyrics(title, artist)
+      if (rapidResult) {
+        lyricsCache.set(cacheKey, rapidResult)
+        cacheTimestamps.set(cacheKey, Date.now())
+        return rapidResult
+      }
+    }
+
     if (!data || (!data.syncedLyrics && !data.plainLyrics)) {
       return { available: false, instrumental: false, timed: false, lines: [] }
     }
@@ -87,13 +116,87 @@ export class LyricsService {
       return { available: false, instrumental: false, timed: false, lines: [] }
     }
     if (data.instrumental) {
-      return { available: true, instrumental: true, timed: false, lines: [] }
+      const result: LyricsResult = { available: true, instrumental: true, timed: false, lines: [] }
+      lyricsCache.set(cacheKey, result)
+      cacheTimestamps.set(cacheKey, Date.now())
+      return result
     }
 
     const timed = Boolean(data.syncedLyrics)
     const lines = parseLrc(raw, timed)
+    const result: LyricsResult = { available: true, instrumental: false, timed, lines }
+    lyricsCache.set(cacheKey, result)
+    cacheTimestamps.set(cacheKey, Date.now())
+    return result
+  }
 
-    return { available: true, instrumental: false, timed, lines }
+  /**
+   * Fetch lyrics from the RapidAPI lyrics provider.
+   * Uses RAPIDAPI_KEY from environment. Matches by normalized title + artist.
+   */
+  private async fetchRapidApiLyrics(title: string, artist: string): Promise<LyricsResult | null> {
+    const apiKey = process.env.RAPIDAPI_KEY
+    if (!apiKey) return null
+
+    // Build search query: title + primary artist (never just title alone).
+    const primaryArtist = artist.split(/,|\bfeat\.?\b|\bft\.?\b/i)[0]?.trim() ?? ''
+    const query = primaryArtist ? `${title} ${primaryArtist}` : title
+
+    try {
+      const r = await fetch(
+        `https://community-lyricsnmusic.p.rapidapi.com/songs?q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            'X-RapidAPI-Key': apiKey,
+            'X-RapidAPI-Host': 'community-lyricsnmusic.p.rapidapi.com'
+          },
+          signal: AbortSignal.timeout(10_000)
+        }
+      )
+      if (!r.ok) return null
+
+      const body = await r.json() as { result?: RapidApiSong[] }
+      const songs = body?.result
+      if (!Array.isArray(songs) || songs.length === 0) return null
+
+      // Match: prefer exact normalized title + strong artist match.
+      const wantTitle = canon(title)
+      const wantArtist = canon(artist)
+      let best: RapidApiSong | null = null
+      let bestScore = -1
+
+      for (const song of songs) {
+        if (!song.lyrics || !song.lyrics.trim()) continue
+        let score = 0
+        const gotTitle = canon(song.title ?? '')
+        const gotArtist = canon(song.artist ?? '')
+
+        if (gotTitle === wantTitle) score += 5
+        else if (gotTitle.includes(wantTitle) || wantTitle.includes(gotTitle)) score += 3
+
+        if (gotArtist && wantArtist) {
+          if (gotArtist === wantArtist) score += 3
+          else if (gotArtist.includes(wantArtist) || wantArtist.includes(gotArtist)) score += 1
+        }
+
+        // Penalize variant titles (acoustic, live, remix, etc.) when user didn't request them.
+        if (/(acoustic|live|remix|cover|instrumental|karaoke|piano|sped|slowed|reverb|demo|concert|orchestral|unplugged|nightcore)/i.test(gotTitle)) {
+          score -= 2
+        }
+
+        if (score > bestScore) {
+          bestScore = score
+          best = song
+        }
+      }
+
+      if (bestScore < 4 || !best || !best.lyrics) return null
+
+      const lines = best.lyrics.split('\n').filter(l => l.trim()).map(l => ({ timeMs: null, text: l.trim() }))
+      return { available: true, instrumental: false, timed: false, lines }
+    } catch {
+      return null
+    }
   }
 
   /** LRCLIB search with fuzzy duration/album tolerance. */
@@ -173,6 +276,10 @@ function canon(raw: string): string {
 /** Removes non-timestamp metadata tags ([ti:], [ar:], [by:], [offset:] ...). */
 function stripMetaTags(raw: string): string {
   return raw.replace(/\[(?!\d{1,2}:\d{2})[^\]]*\]/g, '')
+}
+
+function cacheKeyFor(title: string, artist: string): string {
+  return `${canon(title)}|||${canon(artist)}`
 }
 
 function parseLrc(raw: string, timed: boolean): LyricsLine[] {

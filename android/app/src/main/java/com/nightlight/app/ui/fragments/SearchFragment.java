@@ -261,6 +261,49 @@ public final class SearchFragment extends Fragment {
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        // Auto-focus the search field and show the keyboard when this
+        // fragment becomes visible. Use postDelayed to avoid layout jump
+        // during fragment transition.
+        if (input != null && input.getVisibility() == View.VISIBLE) {
+            input.requestFocus();
+            input.postDelayed(() -> {
+                if (!isAdded() || input == null) return;
+                InputMethodManager imm = (InputMethodManager) requireContext()
+                        .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+                }
+            }, 150);
+        }
+    }
+
+    /**
+     * Public helper called by MainActivity when the user taps the Search
+     * tab. Ensures the keyboard opens on the first tap of the Search tab,
+     * not only on automatic onResume navigation.
+     */
+    public void onSearchTabTapped() {
+        if (input == null || !isAdded()) {
+            return;
+        }
+        // Defer until the view is attached to the window so
+        // getWindowToken() is non-null and showSoftInput succeeds.
+        input.post(() -> {
+            if (!isAdded() || input == null) {
+                return;
+            }
+            input.requestFocus();
+            InputMethodManager imm = (InputMethodManager) requireContext()
+                    .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            if (imm != null && input.getWindowToken() != null) {
+                imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
+    }
+
+    @Override
     public void onStart() {
         super.onStart();
         likesLiveData = library.observeLikes();

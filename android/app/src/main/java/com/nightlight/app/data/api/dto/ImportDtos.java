@@ -11,6 +11,7 @@ public final class ImportDtos {
         public String source;
         public String playlistName;
         public int totalTracks;
+        public int sourceTotal;
         public int matched;
         public List<String> unmatched;
         public List<SongDtos.SongDto> results;

@@ -135,4 +135,15 @@ public interface NightLightApi {
     @PUT("sessions/{code}/state")
     Call<ApiResponse<SessionsDtos.SessionDto>> updateSessionState(
             @Path("code") String code, @Body SessionsDtos.UpdateStateRequest body);
+
+    // Chat
+    @POST("sessions/{code}/chat")
+    Call<ApiResponse<SessionsDtos.ChatSendResponse>> sendChatMessage(
+            @Path("code") String code, @Body SessionsDtos.ChatSendRequest body);
+
+    @GET("sessions/{code}/chat")
+    Call<ApiResponse<SessionsDtos.ChatMessagesResponse>> getChatMessages(
+            @Path("code") String code,
+            @Query("deviceId") String deviceId,
+            @Query("since") long since);
 }

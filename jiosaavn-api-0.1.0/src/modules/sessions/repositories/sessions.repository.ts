@@ -24,11 +24,22 @@ export interface SessionStateRecord {
   updatedAt: number
 }
 
+export interface ChatMessage {
+  id: string
+  deviceId: string
+  name: string
+  message: string
+  createdAt: number
+}
+
+const MAX_CHAT_MESSAGES = 100
+
 export interface SessionRecord {
   code: string
   owner: string
   members: MemberRecord[]
   state: SessionStateRecord
+  messages: ChatMessage[]
   createdAt: number
 }
 
@@ -37,6 +48,7 @@ interface SessionDoc extends Document {
   owner: string
   members: MemberRecord[]
   state: SessionStateRecord
+  messages: ChatMessage[]
   createdAt: number
   updatedAt?: number
 }
@@ -58,6 +70,7 @@ export class SessionsRepository {
         playing: true,
         updatedAt: now
       },
+      messages: [],
       createdAt: now
     }
     await this.collection().insertOne(doc)
@@ -103,12 +116,36 @@ export class SessionsRepository {
     await this.collection().updateOne({ code }, { $set: { updatedAt: Date.now() } })
   }
 
+  /**
+   * Append a chat message to the session. Bounded to MAX_CHAT_MESSAGES by
+   * trimming oldest messages when the array exceeds the limit.
+   */
+  async addMessage(code: string, msg: ChatMessage): Promise<SessionRecord | null> {
+    await this.collection().updateOne(
+      { code },
+      { $push: { messages: { $each: [msg], $slice: -MAX_CHAT_MESSAGES } } } as never
+    )
+    const fresh = await this.collection().findOne({ code })
+    return fresh ? this.lean(fresh) : null
+  }
+
+  /**
+   * Fetch chat messages newer than `since` (timestamp). Returns an empty array
+   * when `since` is >= the newest message.
+   */
+  async getMessages(code: string, since = 0): Promise<ChatMessage[]> {
+    const doc = await this.collection().findOne({ code })
+    if (!doc?.messages) return []
+    return doc.messages.filter((m) => m.createdAt > since)
+  }
+
   private lean(doc: SessionDoc): SessionRecord {
     return {
       code: doc.code,
       owner: doc.owner,
       members: doc.members ?? [],
       state: doc.state,
+      messages: doc.messages ?? [],
       createdAt: doc.createdAt
     }
   }

@@ -25,6 +25,7 @@ import com.nightlight.app.NightLightApp;
 import com.nightlight.app.data.repo.LibraryRepository;
 import com.nightlight.app.data.repo.MusicRepository;
 import com.nightlight.app.domain.model.Track;
+import com.nightlight.app.smartshuffle.NormalShuffleEngine;
 import com.nightlight.app.smartshuffle.SmartShuffleEngine;
 import com.nightlight.app.util.MoodPrefs;
 import com.nightlight.app.util.ShufflePrefs;
@@ -83,6 +84,9 @@ public final class PlaybackManager {
 
     /** Seed track id of the most recent radio request (for validation). */
     private String lastRadioSeedId;
+
+    /** Fisher-Yates permutation engine for NORMAL shuffle mode. */
+    private final NormalShuffleEngine normalShuffle = new NormalShuffleEngine();
 
     /** Media id of the last item a transition was accepted for (double-advance guard). */
     private String lastTransitionId;
@@ -294,6 +298,10 @@ public final class PlaybackManager {
         controller.setMediaItems(items, start, 0L);
         controller.prepare();
         controller.play();
+        // If NORMAL shuffle is active, activate the permutation engine on the new queue.
+        if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))) {
+            normalShuffle.activate(tracks, start);
+        }
     }
 
     /** Appends tracks to the end of the current queue. */
@@ -314,6 +322,10 @@ public final class PlaybackManager {
         if (!items.isEmpty()) {
             controller.addMediaItems(items);
         }
+        // Update shuffle engine after queue mutation.
+        if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))) {
+            normalShuffle.onQueueChanged(getQueueTracks(), controller.getCurrentMediaItemIndex());
+        }
     }
 
     /** Inserts a track to play right after the current one. */
@@ -323,6 +335,9 @@ public final class PlaybackManager {
         }
         int index = controller.getCurrentMediaItemIndex() + 1;
         controller.addMediaItem(index, toMediaItem(track));
+        if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))) {
+            normalShuffle.onQueueChanged(getQueueTracks(), controller.getCurrentMediaItemIndex());
+        }
     }
 
     public void togglePlayPause() {
@@ -367,6 +382,16 @@ public final class PlaybackManager {
                     sessionSkips.clear();
                 }
             }
+        }
+        // NORMAL shuffle: advance through the Fisher-Yates permutation.
+        if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app)) && normalShuffle.isActive()) {
+            int targetIndex = normalShuffle.nextIndex();
+            if (targetIndex >= 0 && targetIndex < controller.getMediaItemCount()) {
+                pendingNext++;
+                controller.seekTo(targetIndex, 0L);
+                controller.play();
+            }
+            return;
         }
         pendingNext++;
         pushNext();
@@ -420,6 +445,10 @@ public final class PlaybackManager {
     public void seekToIndex(int index) {
         if (controller != null) {
             controller.seekTo(index, 0L);
+            // Manual selection updates shuffle state.
+            if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))) {
+                normalShuffle.selectTrack(index);
+            }
         }
     }
 
@@ -457,35 +486,39 @@ public final class PlaybackManager {
     /**
      * Applies a stored shuffle preference (used on startup / settings change).
      *
-     * Key Smart Shuffle contract:
-     * 1. Media3 shuffle is disabled — our curated order is authoritative.
-     * 2. The queue is immediately re-ordered using SmartShuffleEngine so the
-     *    toggle is visually instant.
-     * 3. A radio top-up is fetched in the background and appended when ready.
-     * 4. A generation counter is bumped so stale responses are discarded.
+     * NORMAL shuffle uses a Fisher-Yates permutation engine — Media3 shuffle
+     * is always OFF so our permutation order is respected.
+     *
+     * Smart Shuffle uses a curated contextual queue.
+     *
+     * Off = sequential, no top-ups.
      */
     public void applyShuffleMode(String mode) {
         if (controller == null) {
             return;
         }
+        // Media3 shuffle is always disabled — we control the order.
+        controller.setShuffleModeEnabled(false);
+
         if (ShufflePrefs.NORMAL.equals(mode)) {
-            controller.setShuffleModeEnabled(true);
-            // Leaving Smart mode: bump generation so any in-flight radio
-            // responses for the old smart queue are discarded.
+            // Activate Fisher-Yates permutation on the current queue.
             smartGeneration.incrementAndGet();
-        } else {
-            controller.setShuffleModeEnabled(false);
-            if (ShufflePrefs.SMART.equals(mode)) {
-                // Entering Smart mode: bump generation to invalidate old requests.
-                int gen = smartGeneration.incrementAndGet();
-                // Immediately curate the existing queue so the toggle is visible.
-                curateSmartQueue(gen);
-                // Fetch radio candidates in the background.
-                Track seed = currentTrack();
-                if (seed != null && controller.getMediaItemCount() > 0) {
-                    fetchRadio(seed, 24, true, gen);
-                }
+            normalShuffle.activate(getQueueTracks(), controller.getCurrentMediaItemIndex());
+        } else if (ShufflePrefs.SMART.equals(mode)) {
+            // Entering Smart mode: bump generation to invalidate old requests.
+            normalShuffle.deactivate();
+            int gen = smartGeneration.incrementAndGet();
+            // Immediately curate the existing queue so the toggle is visible.
+            curateSmartQueue(gen);
+            // Fetch radio candidates in the background.
+            Track seed = currentTrack();
+            if (seed != null && controller.getMediaItemCount() > 0) {
+                fetchRadio(seed, 24, true, gen);
             }
+        } else {
+            // OFF mode.
+            normalShuffle.deactivate();
+            smartGeneration.incrementAndGet();
         }
         publish(true);
     }
@@ -782,6 +815,10 @@ public final class PlaybackManager {
             return;
         }
         controller.removeMediaItem(index);
+        // Update shuffle engine after queue mutation.
+        if (ShufflePrefs.NORMAL.equals(ShufflePrefs.mode(app))) {
+            normalShuffle.onQueueChanged(getQueueTracks(), controller.getCurrentMediaItemIndex());
+        }
         publish(true);
     }
 
