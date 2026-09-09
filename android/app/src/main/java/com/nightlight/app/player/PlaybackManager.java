@@ -115,10 +115,6 @@ public final class PlaybackManager {
     private static final long PLAY_THRESHOLD_MS = 30_000L;
     private String playReportedTrackId;
 
-    /** Debounce window for the next() action (one tap = one track). */
-    private static final long NEXT_DEBOUNCE_MS = 350;
-    private long lastNextAt;
-
     /**
      * User NEXT taps that have not yet been reflected by an item transition.
      * Media3 can coalesce back-to-back relative seeks when a previous skip is
@@ -138,11 +134,10 @@ public final class PlaybackManager {
     };
 
     /**
-     * When remaining upcoming tracks fall below this threshold and Smart
-     * Shuffle is active, a proactive radio top-up is triggered so playback
-     * never stutters from an empty queue.
+     * Proactive radio top-up thresholds now live in {@link
+     * com.nightlight.app.util.PlaybackProfile} (per power mode: LOW
+     * disables prefetch, HIGH prefetches deeper).
      */
-    private static final int PROACTIVE_TOPUP_THRESHOLD = 6;
 
     private final Runnable ticker = new Runnable() {
         @Override
@@ -150,10 +145,21 @@ public final class PlaybackManager {
             publish(false);
             maybeReportPlayThreshold();
             if (snapshot.isPlaying && tickerRunning) {
-                main.postDelayed(this, 500);
+                main.postDelayed(this, tickerIntervalMs());
             }
         }
     };
+
+    /** UI tick cadence comes from the power profile (LOW saves wakeups). */
+    private long tickerIntervalMs() {
+        try {
+            return com.nightlight.app.util.PlaybackProfile
+                    .forMode(com.nightlight.app.util.PowerModes.get(app))
+                    .tickerMs;
+        } catch (Exception e) {
+            return 500L;
+        }
+    }
 
     public static PlaybackManager get(Context context) {
         if (instance == null) {
@@ -394,14 +400,11 @@ public final class PlaybackManager {
         if (controller == null) {
             return;
         }
-        // One tap = exactly one track (spec: a single NEXT must never skip
-        // A → C). The guard window also swallows a duplicated transport event,
-        // while staying short enough to feel instant.
-        long now = System.currentTimeMillis();
-        if (now - lastNextAt < NEXT_DEBOUNCE_MS) {
-            return;
-        }
-        lastNextAt = now;
+        // No time-debounce: every tap enqueues exactly one advance and the
+        // pendingNext backlog + watchdog drain them in order, so rapid taps
+        // all land (a 350ms swallow window used to eat the second tap and
+        // read as "next does nothing"). A single tap still advances exactly
+        // one track because each backlog unit consumes one transition.
         // Skipping a track within its first 30s is a weak negative signal for
         // the current artist — Smart Shuffle lowers their ranking this session.
         if (controller.isPlaying()
@@ -421,8 +424,10 @@ public final class PlaybackManager {
                 pendingNext++;
                 controller.seekTo(targetIndex, 0L);
                 controller.play();
+                return;
             }
-            return;
+            // Stale shuffle index (queue mutated under the engine): fall
+            // through to the sequential path rather than dropping the tap.
         }
         pendingNext++;
         pushNext();
@@ -459,9 +464,13 @@ public final class PlaybackManager {
         if (controller == null) {
             return;
         }
-        if (controller.hasPreviousMediaItem()) {
+        if (controller.getCurrentPosition() > 3_000) {
+            controller.seekTo(0);
+        } else if (controller.hasPreviousMediaItem()) {
             controller.seekToPreviousMediaItem();
-        } else if (controller.getCurrentPosition() > 3_000) {
+        } else {
+            // First track at its start: restart it. Previously this fell
+            // through silently — a dead button.
             controller.seekTo(0);
         }
     }
@@ -711,14 +720,17 @@ public final class PlaybackManager {
         if (!ShufflePrefs.isSmart(app.getApplicationContext())) {
             return;
         }
-        if (com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
-            return;
+        com.nightlight.app.util.PlaybackProfile profile =
+                com.nightlight.app.util.PlaybackProfile.forMode(
+                        com.nightlight.app.util.PowerModes.get(app.getApplicationContext()));
+        if (profile.topupThreshold < 0) {
+            return; // LOW power: no background prefetch.
         }
         if (controller.getRepeatMode() != Player.REPEAT_MODE_OFF) {
             return;
         }
         int remaining = controller.getMediaItemCount() - controller.getCurrentMediaItemIndex() - 1;
-        if (remaining > PROACTIVE_TOPUP_THRESHOLD) {
+        if (remaining > profile.topupThreshold) {
             return;
         }
         Track seed = currentTrack();
@@ -841,6 +853,9 @@ public final class PlaybackManager {
             return;
         }
         controller.clearMediaItems();
+        // The shuffle permutation references queue indexes: an emptied queue
+        // must reset it, or a later next() would consume a stale index.
+        normalShuffle.deactivate();
         publish(true);
     }
 
@@ -1055,7 +1070,7 @@ public final class PlaybackManager {
         if (next.isPlaying && !tickerRunning) {
             tickerRunning = true;
             main.removeCallbacks(ticker);
-            main.postDelayed(ticker, 500);
+            main.postDelayed(ticker, tickerIntervalMs());
         } else if (!next.isPlaying && tickerRunning) {
             tickerRunning = false;
             main.removeCallbacks(ticker);

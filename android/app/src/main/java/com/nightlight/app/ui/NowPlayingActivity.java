@@ -281,19 +281,27 @@ public final class NowPlayingActivity extends AppCompatActivity {
     }
 
     /**
-     * Tunes visuals to the experience mode: Low = quieter atmosphere, Balanced
-     * the default cinematic look, High adds the full ambient motion system.
+     * Tunes visuals + work to the power profile (see PlaybackProfile for the
+     * measurable per-mode differences: tick cadence, prefetch, stream
+     * quality live in PlaybackManager/MusicRepository; artwork decode size,
+     * backdrop and ambient motion live here).
      */
     private void applyPowerMode(boolean playing) {
-        String mode = com.nightlight.app.util.PowerModes.get(this);
-        int px = "high".equals(mode) ? 1400 : "low".equals(mode) ? 480 : 900;
+        com.nightlight.app.util.PlaybackProfile profile =
+                com.nightlight.app.util.PlaybackProfile.forMode(
+                        com.nightlight.app.util.PowerModes.get(this));
+        int px = profile.artworkDecodePx;
         if (px != artworkPx) {
             artworkPx = px;
             artworkSized = false;
             ensureArtworkSize();
         }
-        backdrop.setAlpha("low".equals(mode) ? 0.30f : 0.52f);
-        startAmbient();
+        backdrop.setAlpha(profile.backdropAlpha);
+        if (profile.ambientMotion) {
+            startAmbient();
+        } else {
+            stopAmbient();
+        }
     }
 
     /**
@@ -354,6 +362,13 @@ public final class NowPlayingActivity extends AppCompatActivity {
         lp.width = label;
         lp.height = label;
         artwork.setLayoutParams(lp);
+        // Pin the rotation pivot to the disk center explicitly. If the spin
+        // animator ever starts before layout completes, the default pivot
+        // resolves to the top-left corner and the disk swings off-center
+        // (reads as "shifted left"). Explicit pivots make centering
+        // timing-independent.
+        disc.setPivotX(side / 2f);
+        disc.setPivotY(side / 2f);
     }
 
     /**
@@ -363,6 +378,16 @@ public final class NowPlayingActivity extends AppCompatActivity {
      */
     private void startVinylRotation() {
         if (disc == null) return;
+        if (disc.getWidth() <= 0) {
+            // Not laid out yet: size first (pins pivots too). If layout still
+            // hasn't happened, updateVinylAnimation() retries on the next
+            // render tick — never spin around a degenerate pivot.
+            artworkSized = false;
+            ensureArtworkSize();
+            if (disc.getWidth() <= 0) return;
+        }
+        disc.setPivotX(disc.getWidth() / 2f);
+        disc.setPivotY(disc.getHeight() / 2f);
         stopVinylRotation();
         vinylAnimator = android.animation.ObjectAnimator.ofFloat(disc, "rotation", 0f, 360f);
         vinylAnimator.setDuration(VINYL_REVOLUTION_MS);

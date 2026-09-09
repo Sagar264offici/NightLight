@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -75,17 +76,107 @@ public final class MusicRepository {
     private long cachedRadioAt;
     private final AtomicBoolean radioCacheLock = new AtomicBoolean();
 
+    private static final String TAG = "MusicRepository";
+
+    /** Latest in-flight song search; cancelled when a newer query starts. */
+    private final AtomicReference<retrofit2.Call<?>> currentSearchCall = new AtomicReference<>();
+
+    /** Bounded page-0 search cache (normalized query → tracks). */
+    private static final long SEARCH_CACHE_TTL_MS = 120_000L;
+    private static final int SEARCH_CACHE_MAX_QUERIES = 20;
+
+    private static final class SearchCacheEntry {
+        final List<Track> tracks;
+        final int total;
+        final long at;
+
+        SearchCacheEntry(List<Track> tracks, int total, long at) {
+            this.tracks = tracks;
+            this.total = total;
+            this.at = at;
+        }
+    }
+
+    private final java.util.LinkedHashMap<String, SearchCacheEntry> searchCache =
+            new java.util.LinkedHashMap<String, SearchCacheEntry>(32, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, SearchCacheEntry> eldest) {
+                    return size() > SEARCH_CACHE_MAX_QUERIES;
+                }
+            };
+
+    private synchronized SearchCacheEntry cachedSearch(String normalizedQuery) {
+        return searchCache.get(normalizedQuery);
+    }
+
+    private synchronized void putSearchCache(String normalizedQuery, List<Track> tracks, int total) {
+        searchCache.put(normalizedQuery, new SearchCacheEntry(new ArrayList<>(tracks), total, System.currentTimeMillis()));
+    }
+
+    private synchronized void removeSearchCache(String normalizedQuery) {
+        searchCache.remove(normalizedQuery);
+    }
+
+    /** Cancels any in-flight song search (e.g. query cleared). */
+    public void cancelSearch() {
+        retrofit2.Call<?> stale = currentSearchCall.getAndSet(null);
+        if (stale != null) {
+            stale.cancel();
+        }
+    }
+
     public MusicRepository(Context context) {
         this.app = context.getApplicationContext();
         this.api = ApiClient.musicApi(app);
         this.nightLightApi = ApiClient.nightLightApi(app);
     }
 
+    /**
+     * Maps a provider song honoring the power profile: LOW mode prefers
+     * 160kbps streams (data/battery), other modes prefer 320kbps. The
+     * fallback chain is identical, so resolution never breaks.
+     */
+    private Track mapSong(SongDtos.SongDto song) {
+        boolean highQuality = true;
+        try {
+            highQuality = com.nightlight.app.util.PlaybackProfile.forMode(
+                    com.nightlight.app.util.PowerModes.get(app)).preferHighQuality;
+        } catch (Exception ignored) {
+        }
+        return Track.fromSong(song, highQuality);
+    }
+
     public void searchSongs(String query, int page, int limit, SearchCallback callback) {
-        api.searchSongs(query, page, limit).enqueue(new Callback<ApiResponse<SongDtos.SearchSongsDto>>() {
+        String normalized = query == null ? "" : query.trim().toLowerCase();
+        // Bounded page-0 cache: repeat searches (back-navigation, retries,
+        // retyping) skip the network. Paged continuations always fetch.
+        if (page == 0) {
+            SearchCacheEntry cached = cachedSearch(normalized);
+            if (cached != null && System.currentTimeMillis() - cached.at < SEARCH_CACHE_TTL_MS) {
+                android.util.Log.d(TAG, "search cache hit qlen=" + normalized.length());
+                callback.onSuccess(new java.util.ArrayList<>(cached.tracks), cached.total, page);
+                return;
+            } else if (cached != null) {
+                removeSearchCache(normalized);
+            }
+        }
+        // Cancel the previous in-flight search: only the latest query may
+        // update the UI (the ViewModel also ignores stale responses).
+        retrofit2.Call<?> stale = currentSearchCall.getAndSet(null);
+        if (stale != null) {
+            stale.cancel();
+        }
+        final long startedAt = android.os.SystemClock.elapsedRealtime();
+        final int requestPage = page;
+        retrofit2.Call<ApiResponse<SongDtos.SearchSongsDto>> call = api.searchSongs(query, page, limit);
+        currentSearchCall.set(call);
+        call.enqueue(new Callback<ApiResponse<SongDtos.SearchSongsDto>>() {
             @Override
             public void onResponse(Call<ApiResponse<SongDtos.SearchSongsDto>> call,
                                    Response<ApiResponse<SongDtos.SearchSongsDto>> response) {
+                currentSearchCall.compareAndSet(call, null);
+                android.util.Log.d(TAG, "search network page=" + requestPage + " ms="
+                        + (android.os.SystemClock.elapsedRealtime() - startedAt));
                 ApiResponse<SongDtos.SearchSongsDto> body = response.body();
                 if (!response.isSuccessful() || body == null || !body.success || body.data == null) {
                     callback.onFailure(new HttpStatusException(response.code(), body != null ? body.code : null));
@@ -95,15 +186,19 @@ public final class MusicRepository {
                 if (body.data.results != null) {
                     for (SongDtos.SongDto song : body.data.results) {
                         if (song.id != null) {
-                            tracks.add(Track.fromSong(song));
+                            tracks.add(mapSong(song));
                         }
                     }
                 }
-                callback.onSuccess(tracks, body.data.total, page);
+                if (requestPage == 0 && response.isSuccessful()) {
+                    putSearchCache(normalized, tracks, body.data.total);
+                }
+                callback.onSuccess(tracks, body.data.total, requestPage);
             }
 
             @Override
             public void onFailure(Call<ApiResponse<SongDtos.SearchSongsDto>> call, Throwable t) {
+                currentSearchCall.compareAndSet(call, null);
                 callback.onFailure(t);
             }
         });
@@ -146,7 +241,7 @@ public final class MusicRepository {
                         if (body.data.results != null) {
                             for (SongDtos.SongDto song : body.data.results) {
                                 if (song.id != null) {
-                                    tracks.add(Track.fromSong(song));
+                                    tracks.add(mapSong(song));
                                 }
                             }
                         }
@@ -304,7 +399,7 @@ public final class MusicRepository {
                 }
                 for (SongDtos.SongDto song : body.data) {
                     if (song.id != null) {
-                        accumulated.add(Track.fromSong(song));
+                        accumulated.add(mapSong(song));
                     }
                 }
                 if (to < ids.size()) {

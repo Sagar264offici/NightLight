@@ -48,8 +48,8 @@ public class SearchViewModel extends AndroidViewModel {
             return new UiState(Status.IDLE, new ArrayList<>(), recent, null, false, 0);
         }
 
-        static UiState loading(List<String> recent) {
-            return new UiState(Status.LOADING, new ArrayList<>(), recent, null, false, 0);
+        static UiState loading(List<String> recent, List<Track> current) {
+            return new UiState(Status.LOADING, new ArrayList<>(current), recent, null, false, 0);
         }
     }
 
@@ -98,17 +98,20 @@ public class SearchViewModel extends AndroidViewModel {
         handler.removeCallbacks(debounced);
         if (query.isEmpty()) {
             requestId++;
+            music.cancelSearch();
             accumulated.clear();
             state.setValue(UiState.idle(recent));
             return;
         }
-        state.setValue(UiState.loading(recent));
+        // Keep current results attached so the UI can preserve them until
+        // replacements arrive instead of flashing an empty spinner.
+        state.setValue(UiState.loading(recent, accumulated));
         handler.postDelayed(debounced, DEBOUNCE_MS);
     }
 
     public void retry() {
         if (!pendingQuery.isEmpty()) {
-            state.setValue(UiState.loading(recent));
+            state.setValue(UiState.loading(recent, accumulated));
             handler.removeCallbacks(debounced);
             handler.post(debounced);
         }

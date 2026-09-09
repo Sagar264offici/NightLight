@@ -66,8 +66,8 @@ public final class PlaylistDialogs {
         android.widget.LinearLayout sourceRow = new android.widget.LinearLayout(activity);
         sourceRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         android.widget.Button btnSpotify = sourceButton(activity, "Spotify", true);
-        android.widget.Button btnApple = sourceButton(activity, "Apple Music", false);
-        android.widget.Button btnYouTube = sourceButton(activity, "YouTube", false);
+        android.widget.Button btnApple = sourceButton(activity, "Apple Music · Soon", false);
+        android.widget.Button btnYouTube = sourceButton(activity, "YouTube · Soon", false);
         sourceRow.addView(btnSpotify, matchWrap(1f));
         sourceRow.addView(btnApple, matchWrap(1f));
         sourceRow.addView(btnYouTube, matchWrap(1f));
@@ -131,17 +131,19 @@ public final class PlaylistDialogs {
         resultText.setPadding(0, Math.round(8f * activity.getResources().getDisplayMetrics().density), 0, 0);
         root.addView(resultText);
 
-        // Wire source buttons
+        // Wire source buttons. Apple Music and YouTube are Coming Soon for
+        // v1.0.0: their buttons stay visible but selecting them shows a
+        // "Coming soon" message and never starts an import flow.
         Runnable updateHints = () -> {
             switch (selectedSource[0]) {
                 case SOURCE_SPOTIFY:
                     urlInput.setHint("https://open.spotify.com/playlist/…");
                     break;
                 case SOURCE_APPLE:
-                    urlInput.setHint("https://music.apple.com/…");
+                    urlInput.setHint("Apple Music imports are coming soon");
                     break;
                 case SOURCE_YOUTUBE:
-                    urlInput.setHint("https://youtube.com/playlist?list=…");
+                    urlInput.setHint("YouTube imports are coming soon");
                     break;
             }
         };
@@ -155,11 +157,13 @@ public final class PlaylistDialogs {
             selectedSource[0] = SOURCE_APPLE;
             setSelected(btnApple, btnSpotify, btnYouTube);
             updateHints.run();
+            android.widget.Toast.makeText(activity, R.string.import_coming_soon, android.widget.Toast.LENGTH_SHORT).show();
         });
         btnYouTube.setOnClickListener(v -> {
             selectedSource[0] = SOURCE_YOUTUBE;
             setSelected(btnYouTube, btnSpotify, btnApple);
             updateHints.run();
+            android.widget.Toast.makeText(activity, R.string.import_coming_soon, android.widget.Toast.LENGTH_SHORT).show();
         });
 
         AlertDialog dialog = new AlertDialog.Builder(activity)
@@ -173,6 +177,12 @@ public final class PlaylistDialogs {
 
         // Override positive button to prevent auto-dismiss.
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            // Apple Music / YouTube are Coming Soon: never start an import
+            // flow for them, even if one is somehow selected.
+            if (selectedSource[0] == SOURCE_APPLE || selectedSource[0] == SOURCE_YOUTUBE) {
+                android.widget.Toast.makeText(activity, R.string.import_coming_soon, android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
             String url = urlInput.getText().toString().trim();
             if (url.isEmpty()) {
                 urlInput.setError("Enter a playlist URL");

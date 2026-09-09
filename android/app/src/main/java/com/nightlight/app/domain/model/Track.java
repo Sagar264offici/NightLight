@@ -49,6 +49,16 @@ public final class Track {
     }
 
     public static Track fromSong(SongDtos.SongDto song) {
+        return fromSong(song, true);
+    }
+
+    /**
+     * @param highQuality true = prefer 320kbps; false = prefer 160kbps
+     *                    (LOW power mode data/battery saving). The fallback
+     *                    chain is identical either way, so resolution never
+     *                    breaks — only the first choice changes.
+     */
+    public static Track fromSong(SongDtos.SongDto song, boolean highQuality) {
         String artists = joinArtists(song.artists != null ? song.artists.primary : null);
         long durationMs = song.duration != null ? song.duration * 1000L : 0L;
         long plays = song.playCount != null ? song.playCount.longValue() : 0L;
@@ -58,7 +68,7 @@ public final class Track {
                 artists,
                 song.album != null && song.album.name != null ? song.album.name : "",
                 bestImage(song.image),
-                bestDownloadUrl(song.downloadUrl),
+                bestDownloadUrl(song.downloadUrl, highQuality),
                 durationMs,
                 song.year != null ? song.year : "",
                 Math.max(0L, plays));
@@ -133,10 +143,17 @@ public final class Track {
 
     /** Pick the highest-quality streamable URL available. */
     public static String bestDownloadUrl(List<SongDtos.DownloadLinkDto> urls) {
+        return bestDownloadUrl(urls, true);
+    }
+
+    /** Quality-preference variant; fallback order is unchanged. */
+    public static String bestDownloadUrl(List<SongDtos.DownloadLinkDto> urls, boolean highQuality) {
         if (urls == null || urls.isEmpty()) {
             return null;
         }
-        String[] preferred = {"320", "160", "96", "48"};
+        String[] preferred = highQuality
+                ? new String[]{"320", "160", "96", "48"}
+                : new String[]{"160", "96", "320", "48"};
         for (String quality : preferred) {
             for (SongDtos.DownloadLinkDto d : urls) {
                 if (d.quality != null && d.quality.startsWith(quality)) {

@@ -165,6 +165,7 @@ https://nightlight.app/l/%2$s</string>
     <string name="lyrics_resume_current">Resume current line</string>
 
     <string name="import_positive">Import</string>
+    <string name="import_coming_soon">Coming soon</string>
     <string name="import_progress">Matching songs to the library…</string>
     <string name="import_done">Imported %1$d of %2$d songs</string>
 

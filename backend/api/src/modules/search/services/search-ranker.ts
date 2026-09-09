@@ -167,11 +167,44 @@ export function scoreCandidate(
   canonicalBoost?: number | null,
   canonicalArtistBoost?: number | null
 ): number {
+  return scoreCandidateWithNorms(
+    intent,
+    normaliseTitle(intent.title),
+    normaliseTitle(intent.artist),
+    intent.fullNormalized ?? normaliseTitle(intent.rawQuery ?? ''),
+    candidateTitle,
+    candidateArtists,
+    candidateVersion,
+    playCount,
+    trendingBoost,
+    providerScore,
+    canonicalBoost,
+    canonicalArtistBoost
+  )
+}
+
+/**
+ * Scoring core with pre-normalized intent values. rerankResults normalizes
+ * the intent once per query through this path instead of once per candidate
+ * (identical scores, less repeated string work over large pools).
+ */
+function scoreCandidateWithNorms(
+  intent: QueryIntent,
+  normTitle: string,
+  normArtist: string,
+  fullQuery: string,
+  candidateTitle: string,
+  candidateArtists: string[],
+  candidateVersion: VersionType,
+  playCount?: number | null,
+  trendingBoost?: number,
+  providerScore?: number | null,
+  canonicalBoost?: number | null,
+  canonicalArtistBoost?: number | null
+): number {
   let score = 0
 
-  const normTitle = normaliseTitle(intent.title)
   const candTitle = normaliseTitle(candidateTitle)
-  const fullQuery = intent.fullNormalized ?? normaliseTitle(intent.rawQuery ?? '')
 
   // Exact full-query match (0-8 points). This is the strongest relevance signal:
   // query "perfect" vs title "Perfect" → +8; query "ed sheeran perfect" vs
@@ -202,7 +235,6 @@ export function scoreCandidate(
 
   // Artist match (0-4 points).
   if (intent.artist && candidateArtists.length > 0) {
-    const normArtist = normaliseTitle(intent.artist)
     let bestArtistScore = 0
     for (const ca of candidateArtists) {
       const candArtist = normaliseTitle(ca)
@@ -356,6 +388,11 @@ export function rerankResults<T>(
   const intent = extractIntent(query)
   if (!intent.title && !intent.fullNormalized) return results // No intent to rank against.
 
+  // Intent normalization happens once per query (not per candidate).
+  const normTitle = normaliseTitle(intent.title)
+  const normArtist = normaliseTitle(intent.artist)
+  const fullQuery = intent.fullNormalized ?? normaliseTitle(intent.rawQuery ?? '')
+
   return [...results]
     .map((r, idx) => ({ r, idx }))
     .sort((a, b) => {
@@ -371,8 +408,11 @@ export function rerankResults<T>(
       const canonB = extractCanonicalBoost ? extractCanonicalBoost(b.r) : undefined
       const canonArtistA = extractCanonicalArtistBoost ? extractCanonicalArtistBoost(a.r) : undefined
       const canonArtistB = extractCanonicalArtistBoost ? extractCanonicalArtistBoost(b.r) : undefined
-      const scoreA = scoreCandidate(
+      const scoreA = scoreCandidateWithNorms(
         intent,
+        normTitle,
+        normArtist,
+        fullQuery,
         extractTitle(a.r),
         extractArtists(a.r),
         extractVersion(a.r),
@@ -382,8 +422,11 @@ export function rerankResults<T>(
         canonA,
         canonArtistA
       )
-      const scoreB = scoreCandidate(
+      const scoreB = scoreCandidateWithNorms(
         intent,
+        normTitle,
+        normArtist,
+        fullQuery,
         extractTitle(b.r),
         extractArtists(b.r),
         extractVersion(b.r),

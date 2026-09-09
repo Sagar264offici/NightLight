@@ -186,13 +186,21 @@ public final class SearchFragment extends Fragment {
                 historyAdapter.submit(state.recentQueries);
                 break;
             case LOADING:
-                resultsList.setVisibility(View.GONE);
-                recentList.setVisibility(View.GONE);
-                stateView.setVisibility(View.VISIBLE);
-                stateProgress.setVisibility(View.VISIBLE);
-                stateIcon.setVisibility(View.GONE);
-                stateRetry.setVisibility(View.GONE);
-                stateText.setText(R.string.search_state_loading);
+                // Preserve existing results while refining: only show the
+                // full spinner state when there is nothing to keep on screen.
+                if (resultsAdapter.getCurrentList() == null || resultsAdapter.getCurrentList().isEmpty()) {
+                    resultsList.setVisibility(View.GONE);
+                    recentList.setVisibility(View.GONE);
+                    stateView.setVisibility(View.VISIBLE);
+                    stateProgress.setVisibility(View.VISIBLE);
+                    stateIcon.setVisibility(View.GONE);
+                    stateRetry.setVisibility(View.GONE);
+                    stateText.setText(R.string.search_state_loading);
+                } else {
+                    resultsList.setVisibility(View.VISIBLE);
+                    recentList.setVisibility(View.GONE);
+                    stateView.setVisibility(View.GONE);
+                }
                 break;
             case SUCCESS:
                 resultsList.setVisibility(View.VISIBLE);
