@@ -64,6 +64,27 @@ const primaryArtistsOf = (song: SongPayload): string[] => {
   return []
 }
 
+/**
+ * Canonical identity for cross-pool dedupe: upstream hands the same
+ * recording different ids across endpoints (mini vs full objects), so id
+ * matching alone leaves visible duplicates.
+ */
+const canonicalKey = (name: string, artists: string[]): string => {
+  const title = (name ?? '')
+    .toLowerCase()
+    .replaceAll(/\([^)]*\)/g, ' ')
+    .replaceAll(/\[[^\]]*\]/g, ' ')
+    .replaceAll(/[^a-z0-9\s]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+  const artist = artists
+    .map((a) => (a ?? '').toLowerCase().trim())
+    .filter(Boolean)
+    .sort()
+    .join(',')
+  return `${title}|||${artist}`
+}
+
 export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typeof SearchSongModel>> {
   private readonly songById = new GetSongByIdUseCase()
 
@@ -82,7 +103,11 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
         n: safeLimit
       }
     })
-    const primary: SongPayload[] = data.results?.map(createSongPayload).slice(0, safeLimit) || []
+    const primary: SongPayload[] = []
+    for (const song of data.results?.map(createSongPayload) || []) {
+      if (primary.length >= safeLimit) break
+      primary.push(song)
+    }
 
     // Enrichment rung (first page only): autocomplete surfaces globally
     // relevant hits — with a provider `score` — that the text pool can miss
@@ -102,15 +127,21 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
       }
     }
 
-    // Merge: primary order first (stable base), then unseen enrichment hits.
-    const seen = new Set(primary.map((s) => s.id))
-    const pool = [...primary]
-    for (const song of enriched) {
-      if (!seen.has(song.id)) {
-        seen.add(song.id)
-        pool.push(song)
-      }
+    // Merge with canonical dedupe: upstream hands the same recording
+    // different ids within AND across endpoints (mini vs full objects), so
+    // id matching alone leaves visible duplicates. First occurrence wins.
+    const seenIds = new Set<string>()
+    const seenKeys = new Set<string>()
+    const pool: SongPayload[] = []
+    const consider = (song: SongPayload) => {
+      const key = canonicalKey(song.name, primaryArtistsOf(song))
+      if (seenIds.has(song.id) || seenKeys.has(key)) return
+      seenIds.add(song.id)
+      seenKeys.add(key)
+      pool.push(song)
     }
+    for (const song of primary) consider(song)
+    for (const song of enriched) consider(song)
 
     // Single ranking authority: intent + version + playCount + provider score.
     const ranked = rerankResults(
