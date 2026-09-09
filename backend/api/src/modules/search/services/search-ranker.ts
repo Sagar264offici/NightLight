@@ -162,7 +162,8 @@ export function scoreCandidate(
   candidateArtists: string[],
   candidateVersion: VersionType,
   playCount?: number | null,
-  trendingBoost?: number
+  trendingBoost?: number,
+  providerScore?: number | null
 ): number {
   let score = 0
 
@@ -243,11 +244,12 @@ export function scoreCandidate(
     else if (coverage >= 0.5) score += 1.5
   }
 
-  // Version matching (0-5 points).
+  // Version matching.
   if (intent.variant && intent.variant !== 'original') {
-    // User explicitly requested a variant.
+    // User explicitly requested a variant: that intent dominates fame.
+    // A requested remix must beat a billion-play original.
     if (candidateVersion === intent.variant) {
-      score += 5 // Perfect version match.
+      score += 9 // Perfect version match for an explicit request.
     } else if (candidateVersion === 'original') {
       score += 1 // Original is acceptable but not what was requested.
     } else {
@@ -272,6 +274,15 @@ export function scoreCandidate(
   }
   if (typeof trendingBoost === 'number' && Number.isFinite(trendingBoost) && trendingBoost > 0) {
     score += Math.min(4, trendingBoost)
+  }
+
+  // Provider retrieval score (0-4 points). Upstream autocomplete `score`
+  // reflects the provider's own relevance/popularity model (e.g. Ed Sheeran's
+  // "Perfect" ≈ 1.29M vs a regional namesake ≈ 193K). Log scale, bounded so
+  // it can surface a strong candidate the text pool missed but never
+  // outranks an exact intent match on its own.
+  if (typeof providerScore === 'number' && Number.isFinite(providerScore) && providerScore > 0) {
+    score += Math.min(4, Math.max(0, (Math.log10(providerScore + 1) - 4) * 1.5))
   }
 
   return score
@@ -305,6 +316,8 @@ function normaliseTitle(raw: string): string {
  * @param extractPlayCount Optional: playCount for popularity boost.
  * @param extractId Optional: stable id for trending-set lookup.
  * @param trendingIds Optional: set of trending song ids (lowercased) for +2 boost.
+ * @param extractProviderScore Optional: upstream retrieval score (e.g.
+ *   autocomplete `score`) for an additional bounded popularity signal.
  */
 export function rerankResults<T>(
   query: string,
@@ -314,7 +327,8 @@ export function rerankResults<T>(
   extractVersion: (r: T) => VersionType,
   extractPlayCount?: (r: T) => number | null | undefined,
   extractId?: (r: T) => string | undefined,
-  trendingIds?: Set<string>
+  trendingIds?: Set<string>,
+  extractProviderScore?: (r: T) => number | null | undefined
 ): T[] {
   const intent = extractIntent(query)
   if (!intent.title && !intent.fullNormalized) return results // No intent to rank against.
@@ -328,8 +342,26 @@ export function rerankResults<T>(
       const idB = extractId ? extractId(b.r)?.toLowerCase() : undefined
       const trendA = idA && trendingIds?.has(idA) ? 2 : 0
       const trendB = idB && trendingIds?.has(idB) ? 2 : 0
-      const scoreA = scoreCandidate(intent, extractTitle(a.r), extractArtists(a.r), extractVersion(a.r), playA, trendA)
-      const scoreB = scoreCandidate(intent, extractTitle(b.r), extractArtists(b.r), extractVersion(b.r), playB, trendB)
+      const provA = extractProviderScore ? extractProviderScore(a.r) : undefined
+      const provB = extractProviderScore ? extractProviderScore(b.r) : undefined
+      const scoreA = scoreCandidate(
+        intent,
+        extractTitle(a.r),
+        extractArtists(a.r),
+        extractVersion(a.r),
+        playA,
+        trendA,
+        provA
+      )
+      const scoreB = scoreCandidate(
+        intent,
+        extractTitle(b.r),
+        extractArtists(b.r),
+        extractVersion(b.r),
+        playB,
+        trendB,
+        provB
+      )
       if (scoreB !== scoreA) return scoreB - scoreA
       // Tie-break: higher playCount first, then original order (stable).
       const nA = typeof playA === 'number' ? playA : -1

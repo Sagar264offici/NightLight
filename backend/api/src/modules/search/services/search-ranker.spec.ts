@@ -196,3 +196,103 @@ describe('rerankResults()', () => {
     expect(remixIndex).toBeGreaterThan(originalIndex)
   })
 })
+
+describe('fusion ranking (provider score + playCount)', () => {
+  // Mirrors the real retrieval-fusion scenario: the text pool returns
+  // region-skewed namesakes while autocomplete resolution contributes the
+  // global original with a provider score. No test hardcodes "Ed Sheeran"
+  // as correct — the signals (exact match + original + plays + score) decide.
+  interface FusionCandidate {
+    name: string
+    artist: string
+    playCount: number | null
+    providerScore: number | null
+  }
+  const pool: FusionCandidate[] = [
+    {
+      name: 'PERFECT (From "Sunny Sanskari Ki Tulsi Kumari")',
+      artist: 'Guru Randhawa',
+      playCount: 1833447,
+      providerScore: 193034
+    },
+    { name: 'Perfect', artist: 'Gurinder Rai', playCount: 1401921, providerScore: null },
+    { name: 'Perfect', artist: 'Jass Bajwa', playCount: 90908, providerScore: null },
+    { name: 'Mr. Perfect', artist: 'Devi Sri Prasad', playCount: 23863490, providerScore: null },
+    { name: 'Perfect', artist: 'Ed Sheeran', playCount: 2500000000, providerScore: 1293231 },
+    { name: 'Perfect (Acoustic)', artist: 'Ed Sheeran', playCount: 400000000, providerScore: 800000 },
+    { name: 'Perfect (Live)', artist: 'Ed Sheeran', playCount: 90000000, providerScore: 300000 },
+    { name: 'Perfect (Remix)', artist: 'DJ Remix', playCount: 5000000, providerScore: null },
+    { name: 'Perfect', artist: 'Piano Covers', playCount: 120000, providerScore: null }
+  ]
+  const rank = (query: string) =>
+    rerankResults(
+      query,
+      pool,
+      (r) => r.name,
+      (r) => [r.artist],
+      (r) => detectVersion(r.name),
+      (r) => r.playCount,
+      undefined,
+      undefined,
+      (r) => r.providerScore
+    )
+
+  it('"Perfect" prefers the global original over namesakes', () => {
+    const ranked = rank('Perfect')
+    expect(ranked[0].name).toBe('Perfect')
+    expect(ranked[0].artist).toBe('Ed Sheeran')
+  })
+
+  it('"Ed Sheeran Perfect" prefers the global original', () => {
+    const ranked = rank('Ed Sheeran Perfect')
+    expect(ranked[0].artist).toBe('Ed Sheeran')
+    expect(ranked[0].name).toBe('Perfect')
+  })
+
+  it('"Perfect Ed Sheeran" (reversed) still prefers the original', () => {
+    const ranked = rank('Perfect Ed Sheeran')
+    expect(ranked[0].artist).toBe('Ed Sheeran')
+  })
+
+  it('"Perfect acoustic" prefers the acoustic version', () => {
+    const ranked = rank('Perfect acoustic')
+    expect(ranked[0].name).toBe('Perfect (Acoustic)')
+  })
+
+  it('"Perfect live" prefers the live version', () => {
+    const ranked = rank('Perfect live')
+    expect(ranked[0].name).toBe('Perfect (Live)')
+  })
+
+  it('"Perfect remix" prefers the remix over the original', () => {
+    const ranked = rank('Perfect remix')
+    expect(ranked[0].name).toContain('Remix')
+  })
+
+  it('provider score breaks ties between identical titles', () => {
+    const tied: FusionCandidate[] = [
+      { name: 'Perfect', artist: 'Unknown A', playCount: null, providerScore: 100 },
+      { name: 'Perfect', artist: 'Unknown B', playCount: null, providerScore: 900000 }
+    ]
+    const ranked = rerankResults(
+      'Perfect',
+      tied,
+      (r) => r.name,
+      (r) => [r.artist],
+      (r) => detectVersion(r.name),
+      (r) => r.playCount,
+      undefined,
+      undefined,
+      (r) => r.providerScore
+    )
+    expect(ranked[0].artist).toBe('Unknown B')
+  })
+
+  it('without variant intent, variants rank below the original', () => {
+    const ranked = rank('Perfect')
+    const originalIdx = ranked.findIndex((r) => r.name === 'Perfect' && r.artist === 'Ed Sheeran')
+    for (const name of ['Perfect (Acoustic)', 'Perfect (Live)', 'Perfect (Remix)']) {
+      expect(ranked.findIndex((r) => r.name === name)).toBeGreaterThan(originalIdx)
+    }
+  })
+})
