@@ -150,6 +150,10 @@ export class SearchService {
     return this.searchSongsUseCase.execute(args)
   }
 
+  searchSongsWithTrace = (args: SearchSongsArgs) => {
+    return this.searchSongsUseCase.searchWithTrace(args)
+  }
+
   /**
    * "Radio" seeding: given the track currently playing, find OTHER songs that
    * feel related. JioSaavn's own suggestion engine is preferred (it returns

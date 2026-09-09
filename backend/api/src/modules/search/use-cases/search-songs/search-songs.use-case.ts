@@ -2,7 +2,13 @@ import { canonicalKey, performerArtistsOf, sameRecording } from '#modules/provid
 import { ITunesCatalogProvider } from '#modules/providers/itunes-catalog-provider'
 import { JioSaavnCatalogProvider, MAX_JIOSAAVN_LIMIT, withTimeout } from '#modules/providers/jiosaavn-catalog-provider'
 import { JioSaavnPlaybackProvider } from '#modules/providers/jiosaavn-playback-provider'
-import { detectVersion, rerankResults } from '#modules/search/services/search-ranker'
+import {
+  detectVersion,
+  extractIntent,
+  normaliseTitle,
+  rerankResults,
+  scoreCandidate
+} from '#modules/search/services/search-ranker'
 import { PopularityService } from '#modules/stats/services/popularity.service'
 import { HTTPException } from 'hono/http-exception'
 import type { IUseCase } from '#common/types'
@@ -14,6 +20,33 @@ export interface SearchSongsArgs {
   query: string
   page: number
   limit: number
+  /** Opt-in diagnostics (candidate pool + per-candidate scores). Never on by default. */
+  debug?: boolean
+}
+
+export interface SearchDebugCandidate {
+  id: string
+  title: string
+  artist: string
+  version: string
+  language: string
+  playCount: number | null
+  providerScore: number | null
+  confirmed: boolean
+  canonicalArtist: boolean
+  upstream: { source: string; rank: number } | null
+  finalScore: number
+}
+
+export interface SearchDebug {
+  query: string
+  via: string
+  directCount: number
+  enrichedCount: number
+  itunesCount: number
+  fusedCount: number
+  canonicalArtists: string[]
+  candidates: SearchDebugCandidate[]
 }
 
 /**
@@ -34,6 +67,8 @@ const ITUNES_BUDGET_MS = 6000
 const RESOLVE_BUDGET_MS = 5000
 const MAX_RESOLVES = 3
 const CANONICAL_CONFIRM_BOOST = 2
+/** Canonical-artist preference for explicit variant queries (bounded, evidence-based). */
+const CANONICAL_ARTIST_BOOST = 3
 
 function durationMsOf(song: SongPayload): number {
   return typeof song.duration === 'number' ? song.duration * 1000 : 0
@@ -76,6 +111,26 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
   constructor() {}
 
   async execute({ query, limit, page }: SearchSongsArgs): Promise<z.infer<typeof SearchSongModel>> {
+    const { payload } = await this.run({ query, limit, page, debug: false })
+    return payload
+  }
+
+  /**
+   * Same pipeline with an opt-in diagnostic trace: per-candidate origin,
+   * upstream rank and final score. Powers `?debug=true` on the endpoint.
+   */
+  async searchWithTrace(
+    args: SearchSongsArgs
+  ): Promise<{ payload: z.infer<typeof SearchSongModel>; trace: SearchDebug }> {
+    const { payload, trace } = await this.run({ ...args, debug: true })
+    return { payload, trace: trace as SearchDebug }
+  }
+
+  private async run(args: SearchSongsArgs & { debug: boolean }): Promise<{
+    payload: z.infer<typeof SearchSongModel>
+    trace?: SearchDebug
+  }> {
+    const { query, limit, page, debug } = args
     const safeLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), MAX_JIOSAAVN_LIMIT)
     const safePage = Math.max(Math.floor(page) || 0, 0)
     const startedAt = Date.now()
@@ -91,7 +146,13 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
     if (jioSettled.status === 'rejected') {
       // §21: JioSaavn down, iTunes alive → metadata rows (unplayable) beat an empty screen.
       if (itunesTracks.length > 0) {
-        return { total: itunesTracks.length, start: 0, results: itunesTracks.map(toUnplayableSong).slice(0, safeLimit) }
+        return {
+          payload: {
+            total: itunesTracks.length,
+            start: 0,
+            results: itunesTracks.map(toUnplayableSong).slice(0, safeLimit)
+          }
+        }
       }
       throw new HTTPException(502, { message: 'Search is temporarily unavailable' })
     }
@@ -162,6 +223,23 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
       }
     }
 
+    // Canonical artists: performers holding an exact-title ORIGINAL in the
+    // pool. Pure pool evidence — the original recording defines whose
+    // versions are canonical for this title. Applied only when the query
+    // explicitly requests a version (plain queries already prefer originals).
+    const intent = extractIntent(query)
+    const canonicalArtists = new Set<string>()
+    if (intent.variant && intent.variant !== 'original' && intent.title) {
+      const wantTitle = normaliseTitle(intent.title)
+      for (const song of pool.tracks) {
+        if (detectVersion(song.name) === 'original' && normaliseTitle(song.name) === wantTitle) {
+          for (const artist of performerArtistsOf(song)) canonicalArtists.add(artist.toLowerCase())
+        }
+      }
+    }
+    const isCanonicalArtist = (song: SongPayload): boolean =>
+      performerArtistsOf(song).some((a) => canonicalArtists.has(a.toLowerCase()))
+
     const ranked = rerankResults(
       query,
       pool.tracks,
@@ -172,7 +250,8 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
       (r) => (typeof r.id === 'string' ? r.id : undefined),
       undefined,
       (r) => pool.scores.get(r.id) ?? null,
-      (r) => (confirmed.has(r.id) ? CANONICAL_CONFIRM_BOOST : 0)
+      (r) => (confirmed.has(r.id) ? CANONICAL_CONFIRM_BOOST : 0),
+      (r) => (isCanonicalArtist(r) ? CANONICAL_ARTIST_BOOST : 0)
     )
 
     if (safePage === 0) {
@@ -187,13 +266,58 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
     const latencyMs = Date.now() - startedAt
     console.info(
       `[search] rung=jiosaavn(${pool.via})+itunes latencyMs=${latencyMs} pool=${pool.tracks.length} ` +
-        `itunes=${itunesTracks.length} confirmed=${confirmed.size} page=${safePage}`
+        `itunes=${itunesTracks.length} confirmed=${confirmed.size} canonicalArtists=${canonicalArtists.size} page=${safePage}`
     )
 
-    return {
+    const payload = {
       total: pool.total,
       start: pool.start,
       results: ranked.slice(0, safeLimit)
     }
+
+    if (!debug) return { payload }
+
+    const trace: SearchDebug = {
+      query,
+      via: pool.via,
+      directCount: [...pool.ranks.values()].filter((r) => r.source === 'primary').length,
+      enrichedCount: [...pool.ranks.values()].filter((r) => r.source === 'enriched').length,
+      itunesCount: itunesTracks.length,
+      fusedCount: pool.tracks.length,
+      canonicalArtists: [...canonicalArtists],
+      candidates: pool.tracks.map((song) => {
+        const artists = performerArtistsOf(song)
+        const version = detectVersion(song.name)
+        const playCount = typeof song.playCount === 'number' && Number.isFinite(song.playCount) ? song.playCount : null
+        const providerScore = pool.scores.get(song.id) ?? null
+        const rank = pool.ranks.get(song.id) ?? null
+        return {
+          id: song.id,
+          title: song.name,
+          artist: artists[0] ?? '',
+          version,
+          language: song.language ?? '',
+          playCount,
+          providerScore,
+          confirmed: confirmed.has(song.id),
+          canonicalArtist: isCanonicalArtist(song),
+          upstream: rank ? { source: rank.source, rank: rank.rank } : null,
+          finalScore: scoreCandidate(
+            intent,
+            song.name,
+            artists,
+            version,
+            playCount,
+            0,
+            providerScore,
+            confirmed.has(song.id) ? CANONICAL_CONFIRM_BOOST : 0,
+            isCanonicalArtist(song) ? CANONICAL_ARTIST_BOOST : 0
+          )
+        }
+      })
+    }
+    trace.candidates.sort((a, b) => b.finalScore - a.finalScore)
+
+    return { payload, trace }
   }
 }

@@ -96,6 +96,12 @@ export class SearchController implements Routes {
               type: 'integer',
               example: '10',
               default: '10'
+            }),
+            debug: z.string().optional().openapi({
+              title: 'Debug',
+              description: 'Set to true for a candidate-pool diagnostic block (_debug)',
+              type: 'string',
+              example: 'true'
             })
           })
         },
@@ -120,11 +126,19 @@ export class SearchController implements Routes {
         }
       }),
       async (ctx) => {
-        const { query, page, limit } = ctx.req.valid('query')
+        const { query, page, limit, debug } = ctx.req.valid('query')
 
         // Ranking (intent + version + playCount + provider score over a fused
         // getResults + autocomplete pool) happens inside the use case, which
         // is the single ranking authority for song search.
+        if (debug === 'true' || debug === '1') {
+          const { payload, trace } = await this.searchService.searchSongsWithTrace({
+            query,
+            page: page || 0,
+            limit: limit || 10
+          })
+          return ctx.json({ success: true, data: payload, _debug: trace })
+        }
         const result = await this.searchService.searchSongs({ query, page: page || 0, limit: limit || 10 })
 
         return ctx.json({ success: true, data: result })

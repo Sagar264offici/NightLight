@@ -37,6 +37,8 @@ export interface JioSaavnPool {
   start: number
   /** Which egress served the primary rung (observability). */
   via: 'direct' | 'proxy'
+  /** Origin position per track id (diagnostics, never exposed by default). */
+  ranks: Map<string, { source: 'primary' | 'enriched'; rank: number }>
 }
 
 /** Upstream page-size cap (also bounds client `limit`). */
@@ -114,17 +116,21 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
     const seenIds = new Set<string>()
     const seenKeys = new Set<string>()
     const tracks: SongPayload[] = []
-    const consider = (song: SongPayload) => {
+    const ranks = new Map<string, { source: 'primary' | 'enriched'; rank: number }>()
+    let primaryRank = 0
+    let enrichedRank = 0
+    const consider = (song: SongPayload, source: 'primary' | 'enriched') => {
       const key = canonicalKey(song.name, performerArtistsOf(song))
       if (seenIds.has(song.id) || seenKeys.has(key)) return
       seenIds.add(song.id)
       seenKeys.add(key)
       tracks.push(song)
+      ranks.set(song.id, { source, rank: source === 'primary' ? primaryRank++ : enrichedRank++ })
     }
-    for (const song of primaryTracks) consider(song)
-    for (const song of enriched) consider(song)
+    for (const song of primaryTracks) consider(song, 'primary')
+    for (const song of enriched) consider(song, 'enriched')
 
-    return { tracks, scores, total: data.total, start: data.start, via }
+    return { tracks, scores, total: data.total, start: data.start, via, ranks }
   }
 
   async searchTracks(query: string, options: CatalogSearchOptions): Promise<CatalogTrack[]> {

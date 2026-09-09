@@ -164,7 +164,8 @@ export function scoreCandidate(
   playCount?: number | null,
   trendingBoost?: number,
   providerScore?: number | null,
-  canonicalBoost?: number | null
+  canonicalBoost?: number | null,
+  canonicalArtistBoost?: number | null
 ): number {
   let score = 0
 
@@ -292,10 +293,19 @@ export function scoreCandidate(
     score += Math.min(2, canonicalBoost)
   }
 
+  // Canonical-artist preference (0-3 points): when the query explicitly asks
+  // for a version, recordings by the canonical artist(s) — artists holding an
+  // exact-title ORIGINAL in the pool — outrank same-title versions by other
+  // artists. Decided purely from pool evidence (originals present), never
+  // hardcoded per artist. Covers stay eligible, just not first.
+  if (typeof canonicalArtistBoost === 'number' && Number.isFinite(canonicalArtistBoost) && canonicalArtistBoost > 0) {
+    score += Math.min(3, canonicalArtistBoost)
+  }
+
   return score
 }
 
-function normaliseTitle(raw: string): string {
+export function normaliseTitle(raw: string): string {
   return raw
     .toLowerCase()
     .replaceAll(/\([^)]*\)/g, ' ')
@@ -327,6 +337,8 @@ function normaliseTitle(raw: string): string {
  *   autocomplete `score`) for an additional bounded popularity signal.
  * @param extractCanonicalBoost Optional: cross-provider confirmation boost
  *   (small, bounded) when an independent provider resolved the same recording.
+ * @param extractCanonicalArtistBoost Optional: bounded boost for recordings
+ *   by canonical artists (computed from pool evidence, never hardcoded).
  */
 export function rerankResults<T>(
   query: string,
@@ -338,7 +350,8 @@ export function rerankResults<T>(
   extractId?: (r: T) => string | undefined,
   trendingIds?: Set<string>,
   extractProviderScore?: (r: T) => number | null | undefined,
-  extractCanonicalBoost?: (r: T) => number | null | undefined
+  extractCanonicalBoost?: (r: T) => number | null | undefined,
+  extractCanonicalArtistBoost?: (r: T) => number | null | undefined
 ): T[] {
   const intent = extractIntent(query)
   if (!intent.title && !intent.fullNormalized) return results // No intent to rank against.
@@ -356,6 +369,8 @@ export function rerankResults<T>(
       const provB = extractProviderScore ? extractProviderScore(b.r) : undefined
       const canonA = extractCanonicalBoost ? extractCanonicalBoost(a.r) : undefined
       const canonB = extractCanonicalBoost ? extractCanonicalBoost(b.r) : undefined
+      const canonArtistA = extractCanonicalArtistBoost ? extractCanonicalArtistBoost(a.r) : undefined
+      const canonArtistB = extractCanonicalArtistBoost ? extractCanonicalArtistBoost(b.r) : undefined
       const scoreA = scoreCandidate(
         intent,
         extractTitle(a.r),
@@ -364,7 +379,8 @@ export function rerankResults<T>(
         playA,
         trendA,
         provA,
-        canonA
+        canonA,
+        canonArtistA
       )
       const scoreB = scoreCandidate(
         intent,
@@ -374,7 +390,8 @@ export function rerankResults<T>(
         playB,
         trendB,
         provB,
-        canonB
+        canonB,
+        canonArtistB
       )
       if (scoreB !== scoreA) return scoreB - scoreA
       // Tie-break: higher playCount first, then original order (stable).
