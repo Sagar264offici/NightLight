@@ -13,6 +13,13 @@ export interface SearchFetchResult<T> {
 
 type FetchImpl = typeof fetch
 
+let loggedConfig = false
+
+/** True when the Mumbai proxy is configured (URL + secret present, values never exposed). */
+export function isSearchProxyConfigured(): boolean {
+  return Boolean(process.env.SEARCH_PROXY_URL && process.env.SEARCH_PROXY_SECRET)
+}
+
 /**
  * Search-rung transport with Mumbai-egress option.
  *
@@ -30,6 +37,11 @@ export async function searchFetch<T>(
 ): Promise<SearchFetchResult<T>> {
   const proxyUrl = process.env.SEARCH_PROXY_URL
   const proxySecret = process.env.SEARCH_PROXY_SECRET
+  if (!loggedConfig) {
+    loggedConfig = true
+    // Presence only — never log URLs, secrets, or queries.
+    console.info(`[search] mumbai proxy configured: ${Boolean(proxyUrl && proxySecret)}`)
+  }
   if (proxyUrl && proxySecret) {
     try {
       const response = await fetchImpl(proxyUrl, {

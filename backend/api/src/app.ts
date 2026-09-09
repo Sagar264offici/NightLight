@@ -5,6 +5,7 @@ import { apiReference } from '@scalar/hono-api-reference'
 import { getDb } from '#common/database/mongo'
 import { ApiError } from '#common/errors/api-error'
 import { rateLimit } from '#common/middleware/rate-limit'
+import { isSearchProxyConfigured } from '#modules/providers/search-transport'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
@@ -49,7 +50,10 @@ export class App {
           database: dbOk ? 'connected' : 'unavailable',
           // Render injects RENDER_GIT_COMMIT; tells clients exactly which
           // backend build is live (deploy verification + stale-cache diagnosis).
-          commit: process.env.RENDER_GIT_COMMIT ?? 'local'
+          commit: process.env.RENDER_GIT_COMMIT ?? 'local',
+          // Presence only (never values): tells whether Mumbai-egress
+          // search is active without exposing configuration.
+          searchProxy: isSearchProxyConfigured() ? 'configured' : 'missing'
         }
       })
     })
