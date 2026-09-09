@@ -187,6 +187,11 @@ public final class PlaylistRepository {
             importFromUrlStreaming(url, limit, (ImportProgressCallback) callback);
             return;
         }
+        importFromUrlSingleShot(url, limit, callback);
+    }
+
+    /** Single-shot conversion without progress events (fallback + legacy path). */
+    private void importFromUrlSingleShot(String url, int limit, final ImportCallback callback) {
         api.importPlaylist(new Requests.ImportRequest(url, limit))
                 .enqueue(new Callback<ApiResponse<ImportDtos.ImportResultDto>>() {
                     @Override
@@ -279,7 +284,9 @@ public final class PlaylistRepository {
                 });
             } catch (Exception e) {
                 // Fallback to single-shot import so older servers still work.
-                AppExecutors.onMain(() -> importFromUrl(url, limit, callback));
+                // Single-shot directly: routing through importFromUrl would
+                // loop back into streaming for progress callbacks.
+                AppExecutors.onMain(() -> importFromUrlSingleShot(url, limit, callback));
             }
         });
     }
