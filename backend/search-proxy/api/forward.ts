@@ -1,3 +1,5 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+
 /**
  * NightLight search forwarder — Vercel serverless, pinned to bom1 (Mumbai).
  *
@@ -101,9 +103,25 @@ export function clearRateLimitBuckets(): void {
   buckets.clear()
 }
 
-export default async function handler(req: ForwardRequest, res: ForwardResponse): Promise<void> {
+/** Build marker: proves exactly which code serves production (see GET evidence). */
+export const FORWARDER_BUILD = '2026-09-09.3'
+
+export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+  try {
+    await handleRequest(req, res)
+  } catch {
+    // The runtime must never see a throw: FUNCTION_INVOCATION_FAILED otherwise.
+    try {
+      res.status(500).json({ success: false, message: 'internal error', build: FORWARDER_BUILD })
+    } catch {
+      // Response already committed; nothing left to do.
+    }
+  }
+}
+
+async function handleRequest(req: VercelRequest, res: VercelResponse): Promise<void> {
   if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
-    res.status(405).json({ success: false, message: 'POST only' })
+    res.status(405).json({ success: false, message: 'POST only', build: FORWARDER_BUILD, runtime: process.version })
     return
   }
   const secret = process.env.FORWARD_SECRET ?? ''
