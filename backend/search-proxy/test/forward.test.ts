@@ -7,20 +7,21 @@ import handler, {
   headerValue,
   isRateLimited
 } from '../api/forward.ts'
+import type { ForwardResponse } from '../api/forward.ts'
 
-function makeRes() {
+function makeRes(): { state: { code: number; payload: unknown; headers: Record<string, string> }; res: ForwardResponse } {
   const state = { code: 0, payload: null as unknown, headers: {} as Record<string, string> }
   return {
     state,
     res: {
-      status(code) {
+      status(code: number) {
         state.code = code
         return this
       },
-      json(payload) {
+      json(payload: unknown) {
         state.payload = payload
       },
-      setHeader(name, value) {
+      setHeader(name: string, value: string) {
         state.headers[name] = value
       }
     }
@@ -51,17 +52,40 @@ describe('handler gating', () => {
   })
 
   it('requires the shared secret', async () => {
+    const saved = process.env.FORWARD_SECRET
     process.env.FORWARD_SECRET = 's3cret'
-    const { state, res } = makeRes()
-    await handler({ method: 'POST', headers: {}, body: { call: 'search.getResults', params: { q: 'x' } } }, res)
-    assert.equal(state.code, 403)
-    const ok = makeRes()
-    // Wrong secret must also fail (no network: secret check runs first).
-    await handler(
-      { method: 'POST', headers: { 'x-search-proxy-secret': 'wrong' }, body: { call: 'nope', params: {} } },
-      ok.res
-    )
-    assert.equal(ok.state.code, 403)
+    try {
+      const { state, res } = makeRes()
+      await handler({ method: 'POST', headers: {}, body: { call: 'search.getResults', params: { q: 'x' } } }, res)
+      assert.equal(state.code, 403)
+      const ok = makeRes()
+      // Wrong secret must also fail (no network: secret check runs first).
+      await handler(
+        { method: 'POST', headers: { 'x-search-proxy-secret': 'wrong' }, body: { call: 'nope', params: {} } },
+        ok.res
+      )
+      assert.equal(ok.state.code, 403)
+    } finally {
+      if (saved === undefined) delete process.env.FORWARD_SECRET
+      else process.env.FORWARD_SECRET = saved
+    }
+  })
+
+  it('missing FORWARD_SECRET fails closed, never forwards', async () => {
+    const saved = process.env.FORWARD_SECRET
+    delete process.env.FORWARD_SECRET
+    try {
+      const { state, res } = makeRes()
+      // Even the correct-looking secret must fail when none is configured.
+      await handler(
+        { method: 'POST', headers: { 'x-search-proxy-secret': 'anything' }, body: { call: 'search.getResults', params: { q: 'x' } } },
+        res
+      )
+      assert.equal(state.code, 403)
+    } finally {
+      if (saved === undefined) delete process.env.FORWARD_SECRET
+      else process.env.FORWARD_SECRET = saved
+    }
   })
 
   it('rate-limits burst traffic', () => {

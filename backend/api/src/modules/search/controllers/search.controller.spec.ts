@@ -28,16 +28,12 @@ describe('SearchController', () => {
     expect(() => SearchModel.omit({ topQuery: true }).parse(data)).not.toThrow()
   })
 
-  it(
-    'search songs',
-    async () => {
-      const response = await searchController.controller.request('/search/songs?query=believer')
+  it('search songs', async () => {
+    const response = await searchController.controller.request('/search/songs?query=believer')
 
-      const { data } = (await response.json()) as { success: boolean; data: z.infer<typeof SearchSongModel> }
-      expect(() => SearchSongModel.parse(data)).not.toThrow()
-    },
-    30000
-  )
+    const { data } = (await response.json()) as { success: boolean; data: z.infer<typeof SearchSongModel> }
+    expect(() => SearchSongModel.parse(data)).not.toThrow()
+  }, 30000)
 
   it('search albums', async () => {
     const response = await searchController.controller.request('/search/albums?query=blurryface+twenty+one+pilots')
