@@ -27,7 +27,7 @@ export const ALLOWED_PARAMS: Record<string, Set<string>> = {
 }
 
 const MAX_PARAM_LENGTH = 200
-const UPSTREAM_TIMEOUT_MS = 10000
+const UPSTREAM_TIMEOUT_MS = 8000
 const RATE_LIMIT = 120
 const RATE_WINDOW_MS = 60000
 
