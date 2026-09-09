@@ -1,3 +1,5 @@
+import process from 'node:process'
+
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { apiReference } from '@scalar/hono-api-reference'
 import { getDb } from '#common/database/mongo'
@@ -6,7 +8,6 @@ import { rateLimit } from '#common/middleware/rate-limit'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
-import process from 'node:process'
 import { prettyJSON } from 'hono/pretty-json'
 import { ZodError } from 'zod'
 import { Home } from './pages/home'
