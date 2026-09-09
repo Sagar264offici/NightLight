@@ -53,7 +53,8 @@ public final class SmartShuffleEngine {
      *
      * @param explicitMood   user-selected mood (strongest signal; null = infer)
      * @param discoveryRatio 0..1 fraction of picks that deliberately wander
-     * @param skipArtists    artists the listener skipped this session (weak negative)
+     * @param skipArtists    artists the listener skipped this session (negative
+     *                       signal, entries normalized internally)
      * @param likedIds       liked track ids (small familiarity bonus)
      * @param currentTrackId the currently playing track id (excluded from candidates)
      */
@@ -82,7 +83,19 @@ public final class SmartShuffleEngine {
                 ? ListeningContext.explicit(explicitMood, seed)
                 : ListeningContext.fromTrack(seed);
         double discovery = Math.max(0.0, Math.min(1.0, discoveryRatio));
-        Set<String> skipped = skipArtists != null ? skipArtists : Collections.<String>emptySet();
+        // Normalize skip entries: callers store raw display names ("Ed Sheeran")
+        // while scoring compares normalized keys ("ed sheeran"). Without this
+        // the skip signal silently never matches.
+        Set<String> skipped;
+        if (skipArtists != null) {
+            skipped = new HashSet<>();
+            for (String s : skipArtists) {
+                String n = norm(s);
+                if (!n.isEmpty()) skipped.add(n);
+            }
+        } else {
+            skipped = Collections.emptySet();
+        }
         Set<String> liked = likedIds != null ? likedIds : Collections.<String>emptySet();
 
         // Session recency windows (max 15 tracks back — longer memory stops the
@@ -132,7 +145,11 @@ public final class SmartShuffleEngine {
                         w = 0; // would make three same-album slots in a row
                     }
                     if (w > 0 && countArtistInTail(out, norm(t.artists), 4) >= 2) {
-                        w = 0; // same artist already 2x in last 4 — force variety
+                        // Same artist already 2x in last 4 — strong downweight
+                        // (not a hard zero) so a highly relevant track can
+                        // still beat a weak alternative and mood dominance
+                        // survives rotation across a small artist pool.
+                        w *= 0.05;
                     }
                     weights[i] = Math.max(0, w);
                     total += weights[i];
@@ -214,15 +231,18 @@ public final class SmartShuffleEngine {
         }
         int ar = recentArtists.getOrDefault(artist, 0) + inArtists.getOrDefault(artist, 0);
         if (ar > 0) {
-            penalty += 0.65 * Math.min(3, ar);
+            penalty += 0.40 * Math.min(2, ar);
         }
         int al = recentAlbums.getOrDefault(album, 0) + inAlbums.getOrDefault(album, 0);
         if (al > 0) {
-            penalty += 0.30 * Math.min(3, al);
+            penalty += 0.20 * Math.min(2, al);
         }
-        // Repeated skips this session are a weak negative signal for the artist.
+        // A skip must outweigh the seed-artist familiarity bonus (+0.20) plus
+        // album affinity, otherwise skipping the seed's own artist could never
+        // demote it and the signal would be decorative. Call sites pass a
+        // normalized set (see generateQueue).
         if (skipArtists.contains(artist)) {
-            penalty += 0.30;
+            penalty += 0.50;
         }
         // Artist/album cooldowns relax as the queue fills.
         double cool = Math.max(0.22, 1.0 - position * 0.025);

@@ -151,28 +151,49 @@ public class NormalShuffleEngineTest {
     }
 
     @Test
-    public void queue_mutation_rebuilds_permutation() {
+    public void queue_mutation_preserves_played_state() {
+        // Cycle state survives queue mutations by stable track id: tracks
+        // already consumed (the current one + played picks) must not replay
+        // before every surviving unconsumed track has played exactly once.
+        // This is what stops radio top-ups from looping the same few songs.
         NormalShuffleEngine engine = new NormalShuffleEngine(new Random(42));
         List<Track> tracks = queue(5);
         engine.activate(tracks, 0);
 
-        // Play a few.
-        engine.nextIndex();
-        engine.nextIndex();
+        // Play a few; record what was consumed by stable id.
+        int first = engine.nextIndex();
+        int second = engine.nextIndex();
+        Set<String> consumed = new HashSet<>();
+        consumed.add(tracks.get(0).id);
+        consumed.add(tracks.get(first).id);
+        consumed.add(tracks.get(second).id);
 
         // Simulate queue change (remove track 2).
         List<Track> updated = new ArrayList<>(tracks);
-        updated.remove(2);
+        Track removed = updated.remove(2);
         engine.onQueueChanged(updated, 0);
 
-        // Should be able to play all remaining 4 tracks without crash.
-        Set<String> played = new HashSet<>();
-        for (int i = 0; i < 4; i++) {
+        // Every surviving unconsumed track plays exactly once first, in any
+        // order; nothing consumed (or removed) may appear in this phase.
+        Set<String> fresh = new HashSet<>();
+        for (Track t : updated) {
+            if (!consumed.contains(t.id)) {
+                fresh.add(t.id);
+            }
+        }
+        assertFalse("expected surviving fresh tracks", fresh.isEmpty());
+        Set<String> seen = new HashSet<>();
+        for (int i = 0; i < fresh.size(); i++) {
             int idx = engine.nextIndex();
             assertTrue(idx >= 0 && idx < updated.size());
-            played.add(updated.get(idx).id);
+            String id = updated.get(idx).id;
+            assertFalse("removed track replayed", id.equals(removed.id));
+            assertFalse("consumed track " + id + " replayed too early",
+                    consumed.contains(id));
+            assertFalse("fresh track " + id + " repeated", seen.contains(id));
+            seen.add(id);
         }
-        assertEquals(4, played.size());
+        assertEquals(fresh, seen);
     }
 
     @Test
