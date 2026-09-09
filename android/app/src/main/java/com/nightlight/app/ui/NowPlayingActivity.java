@@ -48,6 +48,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
     private ImageButton likeIcon;
     private View artworkStage;
     private View artworkRing;
+    private View disc;
+    private ImageView vinyl;
     private View chatButton;
 
     private boolean userDraggingSeek;
@@ -56,6 +58,11 @@ public final class NowPlayingActivity extends AppCompatActivity {
     private String loadedArtworkId;
     private com.nightlight.app.util.AmbientAnimator ambient;
     private String ambientKey;
+    /** Vinyl rotation: one revolution per 12s, paused with playback. */
+    private android.animation.ObjectAnimator vinylAnimator;
+    private static final long VINYL_REVOLUTION_MS = 12_000L;
+    /** Artwork label diameter as a fraction of the vinyl diameter. */
+    private static final float LABEL_FRACTION = 0.38f;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +78,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
         backdrop = findViewById(R.id.np_backdrop);
         artworkStage = findViewById(R.id.np_artwork_stage);
         artworkRing = findViewById(R.id.np_artwork_ring);
+        disc = findViewById(R.id.np_disc);
+        vinyl = findViewById(R.id.np_vinyl);
         artworkStage.post(this::ensureArtworkSize);
         title = findViewById(R.id.np_title);
         artist = findViewById(R.id.np_artist);
@@ -178,6 +187,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
         viewModel.getSnapshot().removeObserver(snapshotObserver);
         viewModel.getLikedIds().removeObserver(likesObserver);
         stopAmbient();
+        stopVinylRotation();
     }
 
     /**
@@ -224,9 +234,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
         if (track.imageUrl != null && !track.imageUrl.isEmpty()) {
             if (!track.id.equals(loadedArtworkId)) {
                 loadedArtworkId = track.id;
-                // Track transition: artwork + backdrop fade in, metadata
-                // follows — no instant swap, no layout jump.
-                artwork.setAlpha(0f);
+                // Track transition: disk + backdrop fade in, metadata
+                // follows — no instant swap, no layout jump. The vinyl
+                // restarts upright with the new center label.
+                disc.setAlpha(0f);
                 backdrop.setAlpha(0f);
                 title.setAlpha(0f);
                 artist.setAlpha(0f);
@@ -234,6 +245,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
                 artist.animate().alpha(1f).setDuration(340).setStartDelay(130).start();
                 com.nightlight.app.util.AmbientAnimator.enter(artworkStage,
                         com.nightlight.app.util.PowerModes.get(this));
+                startVinylRotation();
             }
             Glide.with(this)
                     .load(track.imageUrl)
@@ -249,7 +261,9 @@ public final class NowPlayingActivity extends AppCompatActivity {
                     .into(backdrop);
             artwork.animate().alpha(1f).setDuration(400).start();
             backdrop.animate().alpha(1f).setDuration(900).start();
+            if (disc.getAlpha() < 1f) disc.animate().alpha(1f).setDuration(400).start();
         }
+        updateVinylAnimation(s.isPlaying);
 
         playPause.setImageResource(s.isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
 
@@ -304,7 +318,8 @@ public final class NowPlayingActivity extends AppCompatActivity {
         }
     }
 
-    /** Compact circular art like the reference mock: capped so controls stay visible. */
+    /** Vinyl disk in the middle: full disc + circular artwork label, capped
+     * so the transport controls stay comfortably on screen. */
     private void ensureArtworkSize() {
         if (artworkSized || artworkStage == null || artworkStage.getWidth() <= 0) {
             return;
@@ -326,10 +341,62 @@ public final class NowPlayingActivity extends AppCompatActivity {
         ringLp.width = side + ringPad;
         ringLp.height = side + ringPad;
         artworkRing.setLayoutParams(ringLp);
+        android.view.ViewGroup.LayoutParams discLp = disc.getLayoutParams();
+        discLp.width = side;
+        discLp.height = side;
+        disc.setLayoutParams(discLp);
+        android.view.ViewGroup.LayoutParams vinylLp = vinyl.getLayoutParams();
+        vinylLp.width = side;
+        vinylLp.height = side;
+        vinyl.setLayoutParams(vinylLp);
+        int label = Math.round(side * LABEL_FRACTION);
         android.view.ViewGroup.LayoutParams lp = artwork.getLayoutParams();
-        lp.width = side;
-        lp.height = side;
+        lp.width = label;
+        lp.height = label;
         artwork.setLayoutParams(lp);
+    }
+
+    /**
+     * Vinyl rotation (reference: DayNight-Music): continuous spin while
+     * playing, frozen the moment playback pauses. Restarted on track change
+     * so the new artwork label starts upright.
+     */
+    private void startVinylRotation() {
+        if (disc == null) return;
+        stopVinylRotation();
+        vinylAnimator = android.animation.ObjectAnimator.ofFloat(disc, "rotation", 0f, 360f);
+        vinylAnimator.setDuration(VINYL_REVOLUTION_MS);
+        vinylAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        vinylAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+        PlaybackSnapshot s = viewModel.getSnapshot().getValue();
+        boolean playing = s != null && s.isPlaying;
+        vinylAnimator.start();
+        if (!playing && vinylAnimator.isRunning()) {
+            vinylAnimator.pause();
+        }
+    }
+
+    private void updateVinylAnimation(boolean isPlaying) {
+        if (vinylAnimator == null) {
+            if (isPlaying) startVinylRotation();
+            return;
+        }
+        if (isPlaying) {
+            if (vinylAnimator.isPaused()) {
+                vinylAnimator.resume();
+            } else if (!vinylAnimator.isRunning()) {
+                vinylAnimator.start();
+            }
+        } else if (vinylAnimator.isRunning()) {
+            vinylAnimator.pause();
+        }
+    }
+
+    private void stopVinylRotation() {
+        if (vinylAnimator != null) {
+            vinylAnimator.cancel();
+            vinylAnimator = null;
+        }
     }
 
     private void renderRepeat(int mode) {

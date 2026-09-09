@@ -67,7 +67,9 @@
                 app:tint="@color/nightlight_cream_dim" />
         </LinearLayout>
 
-        <!-- Artwork stage: floating art above the atmosphere -->
+        <!-- Disk stage: vinyl record in the middle with the album art as its
+             rotating center label (reference: DayNight-Music vinyl player).
+             The whole np_disc group spins while playing, pauses on pause. -->
         <FrameLayout
             android:id="@+id/np_artwork_stage"
             android:layout_width="match_parent"
@@ -79,17 +81,42 @@
                 android:id="@+id/np_artwork_ring"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
+                android:layout_gravity="center"
                 android:background="@drawable/bg_artwork_stage" />
 
-            <ImageView
-                android:id="@+id/np_artwork"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:adjustViewBounds="false"
-                android:background="@drawable/bg_artwork_placeholder_round"
-                android:contentDescription="@string/artwork_desc"
-                android:elevation="12dp"
-                android:scaleType="centerCrop" />
+            <FrameLayout
+                android:id="@+id/np_disc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:elevation="12dp">
+
+                <ImageView
+                    android:id="@+id/np_vinyl"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/bg_vinyl_disc" />
+
+                <ImageView
+                    android:id="@+id/np_artwork"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_gravity="center"
+                    android:adjustViewBounds="false"
+                    android:background="@drawable/bg_artwork_placeholder_round"
+                    android:contentDescription="@string/artwork_desc"
+                    android:scaleType="centerCrop" />
+
+                <View
+                    android:id="@+id/np_spindle"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_spindle_dot" />
+            </FrameLayout>
         </FrameLayout>
 
         <!-- Glass control panel -->
