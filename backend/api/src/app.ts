@@ -7,6 +7,7 @@ import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import { prettyJSON } from 'hono/pretty-json'
+import process from 'node:process'
 import { ZodError } from 'zod'
 import { Home } from './pages/home'
 import ListenBridge from './pages/listen-bridge'
@@ -40,7 +41,16 @@ export class App {
       } catch {
         dbOk = false
       }
-      return ctx.json({ success: true, data: { status: 'ok', database: dbOk ? 'connected' : 'unavailable' } })
+      return ctx.json({
+        success: true,
+        data: {
+          status: 'ok',
+          database: dbOk ? 'connected' : 'unavailable',
+          // Render injects RENDER_GIT_COMMIT; tells clients exactly which
+          // backend build is live (deploy verification + stale-cache diagnosis).
+          commit: process.env.RENDER_GIT_COMMIT ?? 'local'
+        }
+      })
     })
 
     this.app.route('/', Home)
