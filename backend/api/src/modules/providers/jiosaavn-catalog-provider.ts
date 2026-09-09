@@ -1,5 +1,5 @@
 import { Endpoints } from '#common/constants'
-import { canonicalKey, primaryArtistsOf } from '#modules/providers/identity'
+import { canonicalKey, performerArtistsOf } from '#modules/providers/identity'
 import { searchFetch } from '#modules/providers/search-transport'
 import { createSongPayload } from '#modules/songs/helpers'
 import { GetSongByIdUseCase } from '#modules/songs/use-cases'
@@ -41,6 +41,13 @@ export interface JioSaavnPool {
 
 /** Upstream page-size cap (also bounds client `limit`). */
 export const MAX_JIOSAAVN_LIMIT = 50
+/**
+ * First-page fetch depth. Upstream ranks by popularity, so the correct
+ * recording can sit far below the top 10 (a genuine low-play live version
+ * buried at #12 while covers top the list). One deeper page is still a
+ * single bounded call; final slicing happens after ranking.
+ */
+export const FIRST_PAGE_FETCH_DEPTH = 25
 const AUTOCOMPLETE_HITS = 10
 /** Enrichment budget: retrieval must never stall the request on a slow rung. */
 const ENRICH_TIMEOUT_MS = 6000
@@ -77,15 +84,17 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
   async searchPool(query: string, limit: number, page: number): Promise<JioSaavnPool> {
     const safeLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), MAX_JIOSAAVN_LIMIT)
     const safePage = Math.max(Math.floor(page) || 0, 0)
+    const fetchN =
+      safePage === 0 ? Math.min(Math.max(safeLimit, FIRST_PAGE_FETCH_DEPTH), MAX_JIOSAAVN_LIMIT) : safeLimit
 
     const primary = await searchFetch<z.infer<typeof SearchSongAPIResponseModel>>(Endpoints.search.songs, {
       q: query,
       p: safePage,
-      n: safeLimit
+      n: fetchN
     })
     const data = primary.data
     const via = primary.via
-    const primaryTracks: SongPayload[] = data.results?.map(createSongPayload).slice(0, safeLimit) || []
+    const primaryTracks: SongPayload[] = data.results?.map(createSongPayload).slice(0, fetchN) || []
 
     let scores = new Map<string, number>()
     let enriched: SongPayload[] = []
@@ -106,7 +115,7 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
     const seenKeys = new Set<string>()
     const tracks: SongPayload[] = []
     const consider = (song: SongPayload) => {
-      const key = canonicalKey(song.name, primaryArtistsOf(song))
+      const key = canonicalKey(song.name, performerArtistsOf(song))
       if (seenIds.has(song.id) || seenKeys.has(key)) return
       seenIds.add(song.id)
       seenKeys.add(key)
@@ -124,7 +133,7 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
       provider: 'jiosaavn' as const,
       providerId: song.id,
       title: song.name,
-      artists: primaryArtistsOf(song),
+      artists: performerArtistsOf(song),
       album: song.album?.name ?? '',
       artwork: '',
       durationMs: typeof song.duration === 'number' ? song.duration * 1000 : 0,

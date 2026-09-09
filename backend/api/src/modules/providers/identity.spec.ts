@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canonicalKey, sameRecording } from './identity'
+import { canonicalKey, performerArtistsOf, sameRecording } from './identity'
 
 describe('canonicalKey', () => {
   it('normalizes case, punctuation and artist order', () => {
@@ -66,5 +66,52 @@ describe('sameRecording', () => {
         { title: 'Perfect', artists: ['Ed Sheeran'], version: 'original', album: 'Divide', durationMs: 300000 }
       )
     ).toBe(false)
+  })
+})
+
+describe('performerArtistsOf', () => {
+  // Real upstream shapes (verified live): primary_artists echoes the bucket
+  // as its role value, while `all` carries functional roles per credit.
+  const musicTravelLoveLive = {
+    artists: {
+      primary: [{ name: 'Music Travel Love', role: 'primary_artists' }],
+      featured: [],
+      all: [
+        { name: 'Ed Sheeran', role: 'music' },
+        { name: 'Music Travel Love', role: 'singer' },
+        { name: 'Ed Sheeran', role: 'lyricist' }
+      ]
+    }
+  }
+  const edSheeranLive = {
+    artists: {
+      primary: [{ name: 'Ed Sheeran', role: 'primary_artists' }],
+      featured: [],
+      all: [
+        { name: 'Ed Sheeran', role: 'music' },
+        { name: 'Ed Sheeran', role: 'singer' },
+        { name: 'Ed Sheeran', role: 'lyricist' }
+      ]
+    }
+  }
+
+  it('keeps the billed performer, drops writer credits', () => {
+    expect(performerArtistsOf(musicTravelLoveLive)).toEqual(['Music Travel Love'])
+  })
+
+  it('keeps a genuine performer across buckets', () => {
+    expect(performerArtistsOf(edSheeranLive)).toEqual(['Ed Sheeran'])
+  })
+
+  it('includes featured performers and role-less primary names', () => {
+    expect(
+      performerArtistsOf({
+        artists: {
+          primary: [{ name: 'Arijit Singh' }],
+          featured: [{ name: 'Neha Kakkar', role: 'featured_artists' }],
+          all: [{ name: 'Pritam', role: 'music' }]
+        }
+      })
+    ).toEqual(['Arijit Singh', 'Neha Kakkar'])
   })
 })

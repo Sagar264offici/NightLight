@@ -1,6 +1,6 @@
 import { Endpoints } from '#common/constants'
 import { useFetch } from '#common/helpers'
-import { canonicalKey, primaryArtistsOf, sameRecording } from '#modules/providers/identity'
+import { canonicalKey, performerArtistsOf, sameRecording } from '#modules/providers/identity'
 import { detectVersion } from '#modules/search/services/search-ranker'
 import { createSongPayload } from '#modules/songs/helpers'
 import { GetSongByIdUseCase } from '#modules/songs/use-cases'
@@ -75,7 +75,7 @@ export class JioSaavnPlaybackProvider implements PlaybackProvider {
           { title: want.title, artists: want.artists, version: want.version, album: want.album },
           {
             title: song.name,
-            artists: primaryArtistsOf(song),
+            artists: performerArtistsOf(song),
             version: detectVersion(song.name),
             album: song.album?.name ?? '',
             durationMs: typeof song.duration === 'number' ? song.duration * 1000 : 0
@@ -90,7 +90,7 @@ export class JioSaavnPlaybackProvider implements PlaybackProvider {
     const wantKey = canonicalKey(want.title, want.artists)
     for (const song of pool) {
       if (
-        canonicalKey(song.name, primaryArtistsOf(song)) === wantKey &&
+        canonicalKey(song.name, performerArtistsOf(song)) === wantKey &&
         detectVersion(song.name) === 'original' &&
         song.downloadUrl?.length
       ) {

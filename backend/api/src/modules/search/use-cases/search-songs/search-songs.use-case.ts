@@ -1,4 +1,4 @@
-import { canonicalKey, primaryArtistsOf, sameRecording } from '#modules/providers/identity'
+import { canonicalKey, performerArtistsOf, sameRecording } from '#modules/providers/identity'
 import { ITunesCatalogProvider } from '#modules/providers/itunes-catalog-provider'
 import { JioSaavnCatalogProvider, MAX_JIOSAAVN_LIMIT, withTimeout } from '#modules/providers/jiosaavn-catalog-provider'
 import { JioSaavnPlaybackProvider } from '#modules/providers/jiosaavn-playback-provider'
@@ -110,7 +110,7 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
           sameRecording(
             {
               title: song.name,
-              artists: primaryArtistsOf(song),
+              artists: performerArtistsOf(song),
               version: songVersion,
               album: song.album?.name ?? '',
               durationMs: durationMsOf(song)
@@ -149,10 +149,10 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
           RESOLVE_BUDGET_MS
         ).catch(() => [] as PromiseSettledResult<SongPayload | null>[])
         const knownIds = new Set(pool.tracks.map((s) => s.id))
-        const knownKeys = new Set(pool.tracks.map((s) => canonicalKey(s.name, primaryArtistsOf(s))))
+        const knownKeys = new Set(pool.tracks.map((s) => canonicalKey(s.name, performerArtistsOf(s))))
         for (const result of resolutions) {
           if (result.status !== 'fulfilled' || !result.value) continue
-          const key = canonicalKey(result.value.name, primaryArtistsOf(result.value))
+          const key = canonicalKey(result.value.name, performerArtistsOf(result.value))
           if (knownIds.has(result.value.id) || knownKeys.has(key)) continue
           knownIds.add(result.value.id)
           knownKeys.add(key)
@@ -166,7 +166,7 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
       query,
       pool.tracks,
       (r) => (typeof r.name === 'string' ? r.name : ''),
-      primaryArtistsOf,
+      performerArtistsOf,
       (r) => detectVersion(typeof r.name === 'string' ? r.name : ''),
       (r) => (typeof r.playCount === 'number' && Number.isFinite(r.playCount) ? r.playCount : null),
       (r) => (typeof r.id === 'string' ? r.id : undefined),

@@ -35,6 +35,47 @@ export function primaryArtistsOf(song: {
   return []
 }
 
+/**
+ * Functional roles that mean "performed this recording". Upstream `artists[]`
+ * carries these per credit (singer/music/lyricist/...), while the
+ * `primary_artists` bucket echoes the bucket name as its role value.
+ */
+const PERFORMER_ROLES = new Set(['singer', 'performer', 'vocalist', 'vocals', 'artist'])
+
+/**
+ * Performer identity for ranking: billed primary artists + featured artists
+ * + `all` entries with a performer role. Credits like music/lyricist/
+ * composer/songwriter/producer NEVER count — a cover must not inherit the
+ * original writer's identity (e.g. Ed Sheeran credited on Music Travel
+ * Love's live recording must not make it Ed's).
+ */
+export function performerArtistsOf(song: {
+  artists?: {
+    primary?: Array<{ name?: string; role?: string } | null> | null
+    featured?: Array<{ name?: string; role?: string } | null> | null
+    all?: Array<{ name?: string; role?: string } | null> | null
+  } | null
+}): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (name?: string) => {
+    const clean = (name ?? '').trim()
+    if (clean && !seen.has(clean.toLowerCase())) {
+      seen.add(clean.toLowerCase())
+      out.push(clean)
+    }
+  }
+  // Billed performers: the primary/featured buckets ARE the performer claim.
+  for (const a of song.artists?.primary ?? []) push(a?.name)
+  for (const a of song.artists?.featured ?? []) push(a?.name)
+  // Full credits: only functional performer roles.
+  for (const a of song.artists?.all ?? []) {
+    const role = (a?.role ?? '').toLowerCase().trim()
+    if (PERFORMER_ROLES.has(role)) push(a?.name)
+  }
+  return out
+}
+
 /** Canonical identity key: normalized title + sorted artists. */
 export function canonicalKey(title: string, artists: string[]): string {
   const artist = artists

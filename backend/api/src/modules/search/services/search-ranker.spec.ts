@@ -379,3 +379,105 @@ describe('hybrid ranking (canonical confirmation + required queries)', () => {
     expect(ranked[0].name).toBe('Perfect')
   })
 })
+
+describe('live-variant credit collision (Music Travel Love vs Ed Sheeran)', () => {
+  // The MTL live recording credits Ed Sheeran as writer; performer identity
+  // must come from billed/functional performer roles only.
+  interface LiveCandidate {
+    name: string
+    performers: string[]
+    playCount: number | null
+    providerScore: number | null
+  }
+  const pool: LiveCandidate[] = [
+    { name: 'Perfect', performers: ['Ed Sheeran'], playCount: 2500000000, providerScore: 1293231 },
+    { name: 'Perfect (Live)', performers: ['Ed Sheeran'], playCount: 90000000, providerScore: 300000 },
+    {
+      name: 'Perfect (Live from Gasparilla Island)',
+      performers: ['Music Travel Love'],
+      playCount: 12000000,
+      providerScore: 150000
+    },
+    { name: 'Perfect (Acoustic)', performers: ['Ed Sheeran'], playCount: 400000000, providerScore: 800000 },
+    { name: 'Perfect (Remix)', performers: ['DJ Remix'], playCount: 5000000, providerScore: null }
+  ]
+  const rank = (query: string) =>
+    rerankResults(
+      query,
+      pool,
+      (r) => r.name,
+      (r) => r.performers,
+      (r) => detectVersion(r.name),
+      (r) => r.playCount,
+      undefined,
+      undefined,
+      (r) => r.providerScore
+    )
+
+  it('"perfect live" prefers a genuine live recording, not the credit-collision cover', () => {
+    const ranked = rank('perfect live')
+    expect(ranked[0].name).toBe('Perfect (Live)')
+    expect(ranked[0].performers).toEqual(['Ed Sheeran'])
+  })
+
+  it('"perfect live ed sheeran" ranks Ed live above the cover', () => {
+    const ranked = rank('perfect live ed sheeran')
+    const edIdx = ranked.findIndex((r) => r.name === 'Perfect (Live)')
+    const mtlIdx = ranked.findIndex((r) => r.name === 'Perfect (Live from Gasparilla Island)')
+    expect(edIdx).toBe(0)
+    expect(mtlIdx).toBeGreaterThan(edIdx)
+  })
+
+  it('cover gets no Ed performer bonus: direct score comparison', () => {
+    const intent = extractIntent('perfect live ed sheeran')
+    const ed = scoreCandidate(intent, 'Perfect (Live)', ['Ed Sheeran'], 'live', 90000000, 0, 300000)
+    const mtl = scoreCandidate(
+      intent,
+      'Perfect (Live from Gasparilla Island)',
+      ['Music Travel Love'],
+      'live',
+      12000000,
+      0,
+      150000
+    )
+    expect(ed).toBeGreaterThan(mtl)
+  })
+
+  it('"ed sheeran perfect" and "perfect ed sheeran" require the original', () => {
+    for (const q of ['ed sheeran perfect', 'perfect ed sheeran']) {
+      const ranked = rank(q)
+      expect(ranked[0].name).toBe('Perfect')
+      expect(ranked[0].performers).toEqual(['Ed Sheeran'])
+    }
+  })
+
+  it('a buried genuine live recording beats a popular cover (version + confirm over fame)', () => {
+    // Real retrieval shape: the genuine Ed live sits at #12 upstream with
+    // 175 plays while the cover has 6651. First-page depth must include it,
+    // then version intent + canonical confirmation must outrank fame.
+    const pool: LiveCandidate[] = [
+      { name: 'Perfect Live (Live)', performers: ['SpaceStation'], playCount: null, providerScore: null },
+      {
+        name: 'Perfect (Live from Gasparilla Island)',
+        performers: ['Music Travel Love'],
+        playCount: 6651,
+        providerScore: null
+      },
+      { name: 'Perfect (Live)', performers: ['Ed Sheeran'], playCount: 175, providerScore: null }
+    ]
+    const ranked = rerankResults(
+      'perfect live',
+      pool,
+      (r) => r.name,
+      (r) => r.performers,
+      (r) => detectVersion(r.name),
+      (r) => r.playCount,
+      undefined,
+      undefined,
+      (r) => r.providerScore,
+      (r) => (r.performers.includes('Ed Sheeran') && r.name === 'Perfect (Live)' ? 2 : 0)
+    )
+    expect(ranked[0].name).toBe('Perfect (Live)')
+    expect(ranked[0].performers).toEqual(['Ed Sheeran'])
+  })
+})
