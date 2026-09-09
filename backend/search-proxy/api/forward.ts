@@ -104,7 +104,7 @@ export function clearRateLimitBuckets(): void {
 }
 
 /** Build marker: proves exactly which code serves production (see GET evidence). */
-export const FORWARDER_BUILD = '2026-09-09.3'
+export const FORWARDER_BUILD = '2026-09-09.4'
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   try {
