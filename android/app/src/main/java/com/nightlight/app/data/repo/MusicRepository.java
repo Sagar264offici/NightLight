@@ -376,10 +376,13 @@ public final class MusicRepository {
 
     public static final class HttpStatusException extends Exception {
         public final int status;
+        /** Server error code (e.g. RATE_LIMITED, SEARCH_UNAVAILABLE), may be null. */
+        public final String code;
 
         public HttpStatusException(int status, String code) {
             super("HTTP " + status + (code != null ? " (" + code + ")" : ""));
             this.status = status;
+            this.code = code;
         }
     }
 }

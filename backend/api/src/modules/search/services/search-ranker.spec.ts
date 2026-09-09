@@ -296,3 +296,86 @@ describe('fusion ranking (provider score + playCount)', () => {
     }
   })
 })
+
+describe('hybrid ranking (canonical confirmation + required queries)', () => {
+  interface Candidate {
+    name: string
+    artist: string
+    playCount: number | null
+    providerScore: number | null
+    confirmed: boolean
+  }
+  const rank = (query: string, pool: Candidate[]) =>
+    rerankResults(
+      query,
+      pool,
+      (r) => r.name,
+      (r) => [r.artist],
+      (r) => detectVersion(r.name),
+      (r) => r.playCount,
+      undefined,
+      undefined,
+      (r) => r.providerScore,
+      (r) => (r.confirmed ? 2 : 0)
+    )
+
+  it('"Coldplay Clocks" prefers Clocks by Coldplay', () => {
+    const pool: Candidate[] = [
+      { name: 'Clocks', artist: 'Coldplay', playCount: 900000000, providerScore: 500000, confirmed: true },
+      { name: 'Clocks', artist: 'Cover Band', playCount: 100000, providerScore: null, confirmed: false },
+      { name: 'Clockwork', artist: 'Coldplay', playCount: 50000000, providerScore: null, confirmed: false }
+    ]
+    const ranked = rank('Coldplay Clocks', pool)
+    expect(ranked[0].artist).toBe('Coldplay')
+    expect(ranked[0].name).toBe('Clocks')
+  })
+
+  it('"Billie Eilish Birds of a Feather" prefers the original', () => {
+    const pool: Candidate[] = [
+      {
+        name: 'Birds of a Feather',
+        artist: 'Billie Eilish',
+        playCount: 1500000000,
+        providerScore: 900000,
+        confirmed: true
+      },
+      {
+        name: 'Birds of a Feather (Sped Up)',
+        artist: 'Nightcore Lab',
+        playCount: 8000000,
+        providerScore: null,
+        confirmed: false
+      },
+      { name: 'Birds of a Feather', artist: 'Tribute Stars', playCount: 200000, providerScore: null, confirmed: false }
+    ]
+    const ranked = rank('Billie Eilish Birds of a Feather', pool)
+    expect(ranked[0].artist).toBe('Billie Eilish')
+    expect(ranked[0].name).toBe('Birds of a Feather')
+  })
+
+  it('"Arijit Singh Tum Hi Ho" prefers Arijit, not an English lookalike', () => {
+    const pool: Candidate[] = [
+      {
+        name: 'Tum Hi Ho',
+        artist: 'Mithoon, Arijit Singh',
+        playCount: 371000000,
+        providerScore: 700000,
+        confirmed: true
+      },
+      { name: 'Tum Hi Ho (Remix)', artist: 'DJ Shadow', playCount: 9000000, providerScore: null, confirmed: false },
+      { name: 'Tum Hi Ho', artist: 'Karaoke Kings', playCount: 300000, providerScore: null, confirmed: false }
+    ]
+    const ranked = rank('Arijit Singh Tum Hi Ho', pool)
+    expect(ranked[0].artist).toContain('Arijit Singh')
+    expect(ranked[0].name).toBe('Tum Hi Ho')
+  })
+
+  it('canonical confirmation lifts a match but never dominates an exact intent mismatch', () => {
+    const pool: Candidate[] = [
+      { name: 'Perfect Symphony', artist: 'Ed Sheeran', playCount: 100000000, providerScore: 100000, confirmed: true },
+      { name: 'Perfect', artist: 'Ed Sheeran', playCount: 2500000000, providerScore: 1293231, confirmed: true }
+    ]
+    const ranked = rank('Perfect', pool)
+    expect(ranked[0].name).toBe('Perfect')
+  })
+})

@@ -17,7 +17,9 @@ export const Collections = {
   PLAYLIST_TRACKS: 'playlistTracks',
   PREFERENCES: 'preferences',
   SESSIONS: 'sessions',
-  OTPS: 'otps'
+  OTPS: 'otps',
+  SEARCH_EVENTS: 'searchEvents',
+  PLAY_EVENTS: 'playEvents'
 } as const
 
 /**
@@ -79,6 +81,17 @@ async function ensureIndexes(database: Db) {
 
   const preferences = database.collection(Collections.PREFERENCES)
   await preferences.createIndex({ userId: 1 }, { unique: true })
+
+  // NightLight-owned popularity events. Minimal rows, 180-day retention
+  // bounds growth; aggregates are computed from these (never fabricated).
+  const searchEvents = database.collection(Collections.SEARCH_EVENTS)
+  await searchEvents.createIndex({ createdAt: -1 })
+  await searchEvents.createIndex({ query: 1, createdAt: -1 })
+  await searchEvents.createIndex({ createdAt: 1 }, { expireAfterSeconds: 180 * 24 * 3600 })
+
+  const playEvents = database.collection(Collections.PLAY_EVENTS)
+  await playEvents.createIndex({ userId: 1, trackKey: 1, createdAt: -1 })
+  await playEvents.createIndex({ createdAt: 1 }, { expireAfterSeconds: 180 * 24 * 3600 })
 
   const sessions = database.collection(Collections.SESSIONS)
   await sessions.createIndex({ code: 1 }, { unique: true })

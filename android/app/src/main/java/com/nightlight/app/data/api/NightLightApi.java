@@ -79,6 +79,10 @@ public interface NightLightApi {
     @POST("me/recently-played")
     Call<ApiResponse<Object>> recordPlay(@Body Requests.LikeRequest body);
 
+    /** Threshold-crossed play event for NightLight-owned popularity. */
+    @POST("me/plays")
+    Call<ApiResponse<Object>> recordPlayEvent(@Body Requests.PlayEventRequest body);
+
     // Search history
     @GET("me/search-history")
     Call<ApiResponse<UserDtos.HistoryListDto>> getSearchHistory(@Query("limit") int limit);

@@ -1,0 +1,166 @@
+import { Endpoints } from '#common/constants'
+import { useFetch } from '#common/helpers'
+import { canonicalKey, primaryArtistsOf } from '#modules/providers/identity'
+import { createSongPayload } from '#modules/songs/helpers'
+import { GetSongByIdUseCase } from '#modules/songs/use-cases'
+import type {
+  CatalogSearchOptions,
+  CatalogTrack,
+  MusicCatalogProvider,
+  SongPayload
+} from '#modules/providers/music-providers'
+import type { SearchSongAPIResponseModel } from '#modules/search/models'
+import type { z } from 'zod'
+
+/** Minimal autocomplete entry (only fields retrieval needs). */
+interface AutocompleteEntry {
+  id?: string
+  title?: string
+  type?: string
+  more_info?: {
+    score?: string
+    ctr?: number
+  }
+}
+
+interface AutocompleteResponse {
+  songs?: { data?: AutocompleteEntry[] }
+  topquery?: { data?: AutocompleteEntry[] }
+}
+
+export interface JioSaavnPool {
+  tracks: SongPayload[]
+  /** Provider retrieval score by song id (autocomplete `score`/`ctr`). */
+  scores: Map<string, number>
+  /** Upstream total for pagination. */
+  total: number
+  start: number
+}
+
+/** Upstream page-size cap (also bounds client `limit`). */
+export const MAX_JIOSAAVN_LIMIT = 50
+const AUTOCOMPLETE_HITS = 10
+/** Enrichment budget: retrieval must never stall the request on a slow rung. */
+const ENRICH_TIMEOUT_MS = 6000
+
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('enrichment timeout')), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
+/** Provider relevance first (`score`), click-through fallback (`ctr`). */
+function hitScore(entry: AutocompleteEntry): number {
+  const score = Number(entry.more_info?.score)
+  if (Number.isFinite(score) && score > 0) return score
+  const ctr = Number(entry.more_info?.ctr)
+  if (Number.isFinite(ctr) && ctr > 0) return ctr
+  return 0
+}
+
+/**
+ * JioSaavn catalog retrieval: classic text pool fused with autocomplete
+ * resolution. Autocomplete surfaces globally relevant hits (with a provider
+ * score) the text pool can miss entirely on region-skewed indexes.
+ * Retrieval only — ranking stays with NightLightRanker.
+ */
+export class JioSaavnCatalogProvider implements MusicCatalogProvider {
+  readonly name = 'jiosaavn' as const
+  private readonly songById = new GetSongByIdUseCase()
+
+  async searchPool(query: string, limit: number, page: number): Promise<JioSaavnPool> {
+    const safeLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), MAX_JIOSAAVN_LIMIT)
+    const safePage = Math.max(Math.floor(page) || 0, 0)
+
+    const { data } = await useFetch<z.infer<typeof SearchSongAPIResponseModel>>({
+      endpoint: Endpoints.search.songs,
+      params: { q: query, p: safePage, n: safeLimit }
+    })
+    const primary: SongPayload[] = data.results?.map(createSongPayload).slice(0, safeLimit) || []
+
+    let scores = new Map<string, number>()
+    let enriched: SongPayload[] = []
+    if (safePage === 0) {
+      try {
+        const found = await withTimeout(this.fetchAutocompleteSongs(query), ENRICH_TIMEOUT_MS)
+        enriched = found.songs
+        scores = found.scores
+      } catch {
+        enriched = []
+        scores = new Map()
+      }
+    }
+
+    // Canonical dedupe within AND across pools: upstream hands the same
+    // recording different ids (mini vs full objects). First wins.
+    const seenIds = new Set<string>()
+    const seenKeys = new Set<string>()
+    const tracks: SongPayload[] = []
+    const consider = (song: SongPayload) => {
+      const key = canonicalKey(song.name, primaryArtistsOf(song))
+      if (seenIds.has(song.id) || seenKeys.has(key)) return
+      seenIds.add(song.id)
+      seenKeys.add(key)
+      tracks.push(song)
+    }
+    for (const song of primary) consider(song)
+    for (const song of enriched) consider(song)
+
+    return { tracks, scores, total: data.total, start: data.start }
+  }
+
+  async searchTracks(query: string, options: CatalogSearchOptions): Promise<CatalogTrack[]> {
+    const pool = await this.searchPool(query, options.limit, 0)
+    return pool.tracks.map((song) => ({
+      provider: 'jiosaavn' as const,
+      providerId: song.id,
+      title: song.name,
+      artists: primaryArtistsOf(song),
+      album: song.album?.name ?? '',
+      artwork: '',
+      durationMs: typeof song.duration === 'number' ? song.duration * 1000 : 0,
+      language: song.language ?? '',
+      explicit: song.explicitContent,
+      year: song.year ?? '',
+      popularityHint: null,
+      providerScore: pool.scores.get(song.id) ?? null,
+      playable: song
+    }))
+  }
+
+  /**
+   * Resolves autocomplete song hits to full playable payloads.
+   * Empty on any failure — enrichment is strictly optional.
+   */
+  private async fetchAutocompleteSongs(query: string): Promise<{ songs: SongPayload[]; scores: Map<string, number> }> {
+    const empty = { songs: [], scores: new Map<string, number>() }
+    const { data, ok } = await useFetch<AutocompleteResponse>({
+      endpoint: Endpoints.search.all,
+      params: { query }
+    })
+    if (!ok || !data) return empty
+
+    const hits: { id: string; score: number }[] = []
+    const seen = new Set<string>()
+    const collect = (entries?: AutocompleteEntry[]) => {
+      for (const entry of entries ?? []) {
+        if (entry?.type !== 'song' || !entry.id || seen.has(entry.id)) continue
+        seen.add(entry.id)
+        hits.push({ id: entry.id, score: hitScore(entry) })
+        if (hits.length >= AUTOCOMPLETE_HITS) break
+      }
+    }
+    // topquery first: the provider's single best guess for the query.
+    collect(data.topquery?.data)
+    collect(data.songs?.data)
+    if (hits.length === 0) return empty
+
+    const scores = new Map(hits.map((h) => [h.id, h.score] as [string, number]))
+    const songs = await this.songById.execute({ songIds: hits.map((h) => h.id).join(',') })
+    return { songs, scores }
+  }
+}

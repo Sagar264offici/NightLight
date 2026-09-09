@@ -68,4 +68,25 @@ public final class Requests {
             this.limit = limit;
         }
     }
+
+    /**
+     * Threshold-crossed play event. Sent once per track when playback passes
+     * min(30s, 50% of duration) — screen opens and bare starts never count.
+     */
+    public static final class PlayEventRequest {
+        public String trackId;
+        public String title;
+        public java.util.List<String> artists;
+        public long positionMs;
+        public long durationMs;
+
+        public PlayEventRequest(String trackId, String title, java.util.List<String> artists,
+                                long positionMs, long durationMs) {
+            this.trackId = trackId;
+            this.title = title;
+            this.artists = artists;
+            this.positionMs = positionMs;
+            this.durationMs = durationMs;
+        }
+    }
 }

@@ -1,11 +1,13 @@
-import { Endpoints } from '#common/constants'
-import { useFetch } from '#common/helpers'
+import { canonicalKey, primaryArtistsOf, sameRecording } from '#modules/providers/identity'
+import { ITunesCatalogProvider } from '#modules/providers/itunes-catalog-provider'
+import { JioSaavnCatalogProvider, MAX_JIOSAAVN_LIMIT, withTimeout } from '#modules/providers/jiosaavn-catalog-provider'
+import { JioSaavnPlaybackProvider } from '#modules/providers/jiosaavn-playback-provider'
 import { detectVersion, rerankResults } from '#modules/search/services/search-ranker'
-import { createSongPayload } from '#modules/songs/helpers'
-import { GetSongByIdUseCase } from '#modules/songs/use-cases'
+import { PopularityService } from '#modules/stats/services/popularity.service'
+import { HTTPException } from 'hono/http-exception'
 import type { IUseCase } from '#common/types'
-import type { SearchSongAPIResponseModel, SearchSongModel } from '#modules/search/models'
-import type { SongModel } from '#modules/songs/models'
+import type { CatalogTrack, SongPayload } from '#modules/providers/music-providers'
+import type { SearchSongModel } from '#modules/search/models'
 import type { z } from 'zod'
 
 export interface SearchSongsArgs {
@@ -14,185 +16,184 @@ export interface SearchSongsArgs {
   limit: number
 }
 
-/** Minimal autocomplete entry (only fields the fusion needs). */
-interface AutocompleteEntry {
-  id?: string
-  title?: string
-  type?: string
-  more_info?: {
-    score?: string
-    ctr?: number
+/**
+ * Hybrid song search (approved architecture §3):
+ *
+ *   query → JioSaavn retrieval ─┐
+ *                               ├→ cross-provider identity match
+ *         iTunes retrieval ─────┘         ↓
+ *                              NightLight ranking → results
+ *
+ * Bounded fanout: JioSaavn pool (≤50) + iTunes (≤10, 6s budget) +
+ * at most 3 metadata resolutions (8s shared budget). iTunes never fails
+ * the request; total JioSaavn failure falls back to iTunes metadata rows;
+ * both failing yields a clean SEARCH_UNAVAILABLE error.
+ */
+const ITUNES_HITS = 10
+const ITUNES_BUDGET_MS = 6000
+const RESOLVE_BUDGET_MS = 8000
+const MAX_RESOLVES = 3
+const CANONICAL_CONFIRM_BOOST = 2
+
+function durationMsOf(song: SongPayload): number {
+  return typeof song.duration === 'number' ? song.duration * 1000 : 0
+}
+
+/** Structurally valid but unplayable SongModel for provider-outage fallback. */
+function toUnplayableSong(hit: CatalogTrack): SongPayload {
+  return {
+    id: `itunes:${hit.providerId}`,
+    name: hit.title,
+    type: 'song',
+    year: hit.year || null,
+    releaseDate: null,
+    duration: hit.durationMs > 0 ? Math.round(hit.durationMs / 1000) : null,
+    label: null,
+    explicitContent: hit.explicit,
+    playCount: null,
+    language: '',
+    hasLyrics: false,
+    lyricsId: null,
+    url: '',
+    copyright: null,
+    album: { id: null, name: hit.album || null, url: null },
+    artists: {
+      primary: hit.artists.map((name) => ({ id: '', name, role: '', image: [], type: '', url: '' })),
+      featured: [],
+      all: []
+    },
+    image: hit.artwork ? [{ quality: '500x500', url: hit.artwork }] : [],
+    downloadUrl: []
   }
 }
 
-interface AutocompleteResponse {
-  songs?: { data?: AutocompleteEntry[] }
-  topquery?: { data?: AutocompleteEntry[] }
-}
-
-type SongPayload = z.infer<typeof SongModel>
-
-/** Upstream page-size cap (also bounds client `limit`). */
-const MAX_LIMIT = 50
-/** Autocomplete song hits resolved per query. */
-const AUTOCOMPLETE_HITS = 10
-/** Enrichment budget: search must never get slower than this on top of the primary rung. */
-const ENRICH_TIMEOUT_MS = 6000
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('enrichment timeout')), ms)
-  })
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer)
-  })
-}
-
-/** Provider relevance first (`score`), click-through fallback (`ctr`), else 0. */
-function hitScore(entry: AutocompleteEntry): number {
-  const score = Number(entry.more_info?.score)
-  if (Number.isFinite(score) && score > 0) return score
-  const ctr = Number(entry.more_info?.ctr)
-  if (Number.isFinite(ctr) && ctr > 0) return ctr
-  return 0
-}
-
-const primaryArtistsOf = (song: SongPayload): string[] => {
-  const primary = song.artists?.primary
-  if (Array.isArray(primary)) return primary.map((a) => a?.name ?? '').filter(Boolean)
-  return []
-}
-
-/**
- * Canonical identity for cross-pool dedupe: upstream hands the same
- * recording different ids across endpoints (mini vs full objects), so id
- * matching alone leaves visible duplicates.
- */
-const canonicalKey = (name: string, artists: string[]): string => {
-  const title = (name ?? '')
-    .toLowerCase()
-    .replaceAll(/\([^)]*\)/g, ' ')
-    .replaceAll(/\[[^\]]*\]/g, ' ')
-    .replaceAll(/[^a-z0-9\s]/g, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim()
-  const artist = artists
-    .map((a) => (a ?? '').toLowerCase().trim())
-    .filter(Boolean)
-    .sort()
-    .join(',')
-  return `${title}|||${artist}`
-}
-
 export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typeof SearchSongModel>> {
-  private readonly songById = new GetSongByIdUseCase()
+  private readonly jioSaavn = new JioSaavnCatalogProvider()
+  private readonly itunes = new ITunesCatalogProvider()
+  private readonly playback = new JioSaavnPlaybackProvider()
+  private readonly popularity = new PopularityService()
 
   constructor() {}
 
   async execute({ query, limit, page }: SearchSongsArgs): Promise<z.infer<typeof SearchSongModel>> {
-    const safeLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), MAX_LIMIT)
+    const safeLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), MAX_JIOSAAVN_LIMIT)
     const safePage = Math.max(Math.floor(page) || 0, 0)
+    const startedAt = Date.now()
 
-    // Primary rung: classic catalog search (always required — never fails silently).
-    const { data } = await useFetch<z.infer<typeof SearchSongAPIResponseModel>>({
-      endpoint: Endpoints.search.songs,
-      params: {
-        q: query,
-        p: safePage,
-        n: safeLimit
+    const [jioSettled, itunesSettled] = await Promise.allSettled([
+      this.jioSaavn.searchPool(query, safeLimit, safePage),
+      safePage === 0
+        ? withTimeout(this.itunes.searchTracks(query, { limit: ITUNES_HITS }), ITUNES_BUDGET_MS)
+        : Promise.resolve([] as CatalogTrack[])
+    ])
+    const itunesTracks = itunesSettled.status === 'fulfilled' ? itunesSettled.value : []
+
+    if (jioSettled.status === 'rejected') {
+      // §21: JioSaavn down, iTunes alive → metadata rows (unplayable) beat an empty screen.
+      if (itunesTracks.length > 0) {
+        return { total: itunesTracks.length, start: 0, results: itunesTracks.map(toUnplayableSong).slice(0, safeLimit) }
       }
-    })
-    const primary: SongPayload[] = []
-    for (const song of data.results?.map(createSongPayload) || []) {
-      if (primary.length >= safeLimit) break
-      primary.push(song)
+      throw new HTTPException(502, { message: 'Search is temporarily unavailable' })
     }
 
-    // Enrichment rung (first page only): autocomplete surfaces globally
-    // relevant hits — with a provider `score` — that the text pool can miss
-    // entirely on region-skewed indexes (e.g. Ed Sheeran's "Perfect" for
-    // query "perfect"). Hits are resolved to full songs so they stay
-    // playable and carry playCount. Must never fail or stall the request.
-    let providerScores = new Map<string, number>()
-    let enriched: SongPayload[] = []
+    const pool = jioSettled.value
+    const confirmed = new Set<string>()
+    const usedItunes = new Set<string>()
+
+    // Cross-provider identity: iTunes independently confirming the same
+    // recording earns a small canonical boost (never dominant).
+    for (const song of pool.tracks) {
+      const songVersion = detectVersion(song.name)
+      const hit = itunesTracks.find(
+        (candidate) =>
+          !usedItunes.has(candidate.providerId) &&
+          sameRecording(
+            {
+              title: song.name,
+              artists: primaryArtistsOf(song),
+              version: songVersion,
+              album: song.album?.name ?? '',
+              durationMs: durationMsOf(song)
+            },
+            {
+              title: candidate.title,
+              artists: candidate.artists,
+              version: detectVersion(candidate.title),
+              album: candidate.album,
+              durationMs: candidate.durationMs
+            }
+          )
+      )
+      if (hit) {
+        confirmed.add(song.id)
+        usedItunes.add(hit.providerId)
+      }
+    }
+
+    // Resolve top unmatched iTunes hits to playable JioSaavn tracks (§9):
+    // canonical metadata in, ranked JioSaavn equivalent out — never blind first-pick.
     if (safePage === 0) {
-      try {
-        const found = await withTimeout(this.fetchAutocompleteSongs(query), ENRICH_TIMEOUT_MS)
-        enriched = found.songs
-        providerScores = found.scores
-      } catch {
-        enriched = []
-        providerScores = new Map()
+      const unmatched = itunesTracks.filter((hit) => !usedItunes.has(hit.providerId)).slice(0, MAX_RESOLVES)
+      if (unmatched.length > 0) {
+        const resolutions = await withTimeout(
+          Promise.allSettled(
+            unmatched.map((hit) =>
+              this.playback.resolveByMetadata({
+                title: hit.title,
+                artists: hit.artists,
+                album: hit.album,
+                version: detectVersion(hit.title)
+              })
+            )
+          ),
+          RESOLVE_BUDGET_MS
+        ).catch(() => [] as PromiseSettledResult<SongPayload | null>[])
+        const knownIds = new Set(pool.tracks.map((s) => s.id))
+        const knownKeys = new Set(pool.tracks.map((s) => canonicalKey(s.name, primaryArtistsOf(s))))
+        for (const result of resolutions) {
+          if (result.status !== 'fulfilled' || !result.value) continue
+          const key = canonicalKey(result.value.name, primaryArtistsOf(result.value))
+          if (knownIds.has(result.value.id) || knownKeys.has(key)) continue
+          knownIds.add(result.value.id)
+          knownKeys.add(key)
+          pool.tracks.push(result.value)
+          confirmed.add(result.value.id)
+        }
       }
     }
 
-    // Merge with canonical dedupe: upstream hands the same recording
-    // different ids within AND across endpoints (mini vs full objects), so
-    // id matching alone leaves visible duplicates. First occurrence wins.
-    const seenIds = new Set<string>()
-    const seenKeys = new Set<string>()
-    const pool: SongPayload[] = []
-    const consider = (song: SongPayload) => {
-      const key = canonicalKey(song.name, primaryArtistsOf(song))
-      if (seenIds.has(song.id) || seenKeys.has(key)) return
-      seenIds.add(song.id)
-      seenKeys.add(key)
-      pool.push(song)
-    }
-    for (const song of primary) consider(song)
-    for (const song of enriched) consider(song)
-
-    // Single ranking authority: intent + version + playCount + provider score.
     const ranked = rerankResults(
       query,
-      pool,
+      pool.tracks,
       (r) => (typeof r.name === 'string' ? r.name : ''),
       primaryArtistsOf,
       (r) => detectVersion(typeof r.name === 'string' ? r.name : ''),
       (r) => (typeof r.playCount === 'number' && Number.isFinite(r.playCount) ? r.playCount : null),
       (r) => (typeof r.id === 'string' ? r.id : undefined),
       undefined,
-      (r) => providerScores.get(r.id) ?? null
+      (r) => pool.scores.get(r.id) ?? null,
+      (r) => (confirmed.has(r.id) ? CANONICAL_CONFIRM_BOOST : 0)
+    )
+
+    if (safePage === 0) {
+      // Anonymous search event for most-searched/velocity. Fire-and-forget:
+      // analytics must never slow or break search.
+      this.popularity.recordSearch(query).then(
+        () => {},
+        () => {}
+      )
+    }
+
+    const latencyMs = Date.now() - startedAt
+    console.info(
+      `[search] rung=jiosaavn+itunes latencyMs=${latencyMs} pool=${pool.tracks.length} ` +
+        `itunes=${itunesTracks.length} confirmed=${confirmed.size} page=${safePage}`
     )
 
     return {
-      total: data.total,
-      start: data.start,
+      total: pool.total,
+      start: pool.start,
       results: ranked.slice(0, safeLimit)
     }
-  }
-
-  /**
-   * Resolves autocomplete song hits to full playable payloads.
-   * Returns empty on any failure (miss, 404, timeout) — callers treat
-   * enrichment as strictly optional.
-   */
-  private async fetchAutocompleteSongs(query: string): Promise<{ songs: SongPayload[]; scores: Map<string, number> }> {
-    const empty = { songs: [], scores: new Map<string, number>() }
-    const { data, ok } = await useFetch<AutocompleteResponse>({
-      endpoint: Endpoints.search.all,
-      params: { query }
-    })
-    if (!ok || !data) return empty
-
-    const hits: { id: string; score: number }[] = []
-    const seen = new Set<string>()
-    const collect = (entries?: AutocompleteEntry[]) => {
-      for (const entry of entries ?? []) {
-        if (entry?.type !== 'song' || !entry.id || seen.has(entry.id)) continue
-        seen.add(entry.id)
-        hits.push({ id: entry.id, score: hitScore(entry) })
-        if (hits.length >= AUTOCOMPLETE_HITS) break
-      }
-    }
-    // topquery first: the provider's single best guess for the query.
-    collect(data.topquery?.data)
-    collect(data.songs?.data)
-    if (hits.length === 0) return empty
-
-    const scores = new Map(hits.map((h) => [h.id, h.score] as [string, number]))
-    const songs = await this.songById.execute({ songIds: hits.map((h) => h.id).join(',') })
-    return { songs, scores }
   }
 }

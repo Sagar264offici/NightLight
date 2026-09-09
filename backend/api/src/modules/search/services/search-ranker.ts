@@ -163,7 +163,8 @@ export function scoreCandidate(
   candidateVersion: VersionType,
   playCount?: number | null,
   trendingBoost?: number,
-  providerScore?: number | null
+  providerScore?: number | null,
+  canonicalBoost?: number | null
 ): number {
   let score = 0
 
@@ -285,6 +286,12 @@ export function scoreCandidate(
     score += Math.min(4, Math.max(0, (Math.log10(providerScore + 1) - 4) * 1.5))
   }
 
+  // Canonical confirmation (0-2 points): an independent provider resolved
+  // the same recording. Small by design — confirmation, not dominance.
+  if (typeof canonicalBoost === 'number' && Number.isFinite(canonicalBoost) && canonicalBoost > 0) {
+    score += Math.min(2, canonicalBoost)
+  }
+
   return score
 }
 
@@ -318,6 +325,8 @@ function normaliseTitle(raw: string): string {
  * @param trendingIds Optional: set of trending song ids (lowercased) for +2 boost.
  * @param extractProviderScore Optional: upstream retrieval score (e.g.
  *   autocomplete `score`) for an additional bounded popularity signal.
+ * @param extractCanonicalBoost Optional: cross-provider confirmation boost
+ *   (small, bounded) when an independent provider resolved the same recording.
  */
 export function rerankResults<T>(
   query: string,
@@ -328,7 +337,8 @@ export function rerankResults<T>(
   extractPlayCount?: (r: T) => number | null | undefined,
   extractId?: (r: T) => string | undefined,
   trendingIds?: Set<string>,
-  extractProviderScore?: (r: T) => number | null | undefined
+  extractProviderScore?: (r: T) => number | null | undefined,
+  extractCanonicalBoost?: (r: T) => number | null | undefined
 ): T[] {
   const intent = extractIntent(query)
   if (!intent.title && !intent.fullNormalized) return results // No intent to rank against.
@@ -344,6 +354,8 @@ export function rerankResults<T>(
       const trendB = idB && trendingIds?.has(idB) ? 2 : 0
       const provA = extractProviderScore ? extractProviderScore(a.r) : undefined
       const provB = extractProviderScore ? extractProviderScore(b.r) : undefined
+      const canonA = extractCanonicalBoost ? extractCanonicalBoost(a.r) : undefined
+      const canonB = extractCanonicalBoost ? extractCanonicalBoost(b.r) : undefined
       const scoreA = scoreCandidate(
         intent,
         extractTitle(a.r),
@@ -351,7 +363,8 @@ export function rerankResults<T>(
         extractVersion(a.r),
         playA,
         trendA,
-        provA
+        provA,
+        canonA
       )
       const scoreB = scoreCandidate(
         intent,
@@ -360,7 +373,8 @@ export function rerankResults<T>(
         extractVersion(b.r),
         playB,
         trendB,
-        provB
+        provB,
+        canonB
       )
       if (scoreB !== scoreA) return scoreB - scoreA
       // Tie-break: higher playCount first, then original order (stable).

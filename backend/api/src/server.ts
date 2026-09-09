@@ -5,6 +5,7 @@ import { AlbumController, ArtistController, SearchController, SongController } f
 import { LyricsController } from '#modules/lyrics/controllers'
 import { PlaylistController } from '#modules/playlists/controllers'
 import { SessionsController } from '#modules/sessions/controllers'
+import { StatsController } from '#modules/stats/controllers'
 import { UserDataController } from '#modules/userdata/controllers'
 import { App } from './app'
 
@@ -19,6 +20,7 @@ const app = new App([
   new ImportController(),
   new LyricsController(),
   new SessionsController(),
+  new StatsController(),
   new WeatherController()
 ]).getApp()
 

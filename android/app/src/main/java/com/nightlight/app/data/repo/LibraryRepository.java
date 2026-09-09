@@ -202,6 +202,30 @@ public final class LibraryRepository {
         });
     }
 
+    /**
+     * Reports a threshold-crossed play for NightLight-owned popularity.
+     * Fire-and-forget, auth-gated (guests skip); the server enforces the
+     * threshold again and dedupes repeats, so duplicate calls are harmless.
+     */
+    public void reportPlayPosition(String trackId, String title, java.util.List<String> artists,
+                                   long positionMs, long durationMs) {
+        if (!com.nightlight.app.util.TokenStore.hasToken()
+                || trackId == null || title == null || title.trim().isEmpty()) {
+            return;
+        }
+        api.recordPlayEvent(new Requests.PlayEventRequest(
+                trackId, title, artists != null ? artists : new java.util.ArrayList<>(),
+                positionMs, durationMs)).enqueue(new Callback<ApiResponse<Object>>() {
+            @Override
+            public void onResponse(Call<ApiResponse<Object>> c, Response<ApiResponse<Object>> r) {
+            }
+
+            @Override
+            public void onFailure(Call<ApiResponse<Object>> c, Throwable t) {
+            }
+        });
+    }
+
     public void clearRecent() {
         AppExecutors.get().io().execute(() -> db.libraryDao().clearRecent());
     }

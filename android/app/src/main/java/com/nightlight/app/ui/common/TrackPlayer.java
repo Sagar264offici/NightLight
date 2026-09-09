@@ -26,6 +26,14 @@ public final class TrackPlayer {
     }
 
     /**
+     * Resolution generation: every play() call bumps it, and late callbacks
+     * from an older request are ignored. Without this, tapping song A (slow
+     * resolve) then song B lets A's late response overwrite B.
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger RESOLVE_GENERATION =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
+    /**
      * Collapses near-duplicate variants of the same song (remix / acoustic /
      * slowed / live...) so shuffle and auto-next deliver variety instead of
      * cycling versions of one track. The dedupe key combines the canonical
@@ -81,10 +89,14 @@ public final class TrackPlayer {
             return;
         }
 
+        final int generation = RESOLVE_GENERATION.incrementAndGet();
         NightLightApp app = (NightLightApp) context.getApplicationContext();
         app.getMusicRepository().resolveTracks(tracks, new MusicRepository.TracksCallback() {
             @Override
             public void onSuccess(List<Track> resolved) {
+                if (generation != RESOLVE_GENERATION.get()) {
+                    return; // Superseded by a newer play() — must not overwrite it.
+                }
                 if (resolved == null || resolved.isEmpty()) {
                     AppExecutors.onMain(() -> android.widget.Toast.makeText(context,
                             "No playable tracks were found.", android.widget.Toast.LENGTH_SHORT).show());
@@ -112,6 +124,9 @@ public final class TrackPlayer {
 
             @Override
             public void onFailure(Throwable error) {
+                if (generation != RESOLVE_GENERATION.get()) {
+                    return; // Superseded — no stale error toast over the new track.
+                }
                 AppExecutors.onMain(() -> {
                     android.widget.Toast.makeText(context,
                             ErrorMapper.toUserMessage(context, error), android.widget.Toast.LENGTH_SHORT).show();

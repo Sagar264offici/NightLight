@@ -142,6 +142,7 @@ https://nightlight.app/l/%2$s</string>
     <string name="error_timeout">This is taking too long — check your connection</string>
     <string name="error_not_found">That doesn’t exist anymore</string>
     <string name="error_rate_limited">Too many requests — wait a moment</string>
+    <string name="error_search_unavailable">Search is temporarily unavailable</string>
     <string name="error_server">NightLight is having trouble — try again soon</string>
     <string name="error_unauthorized">Session expired — restarting</string>
 

@@ -38,6 +38,17 @@ public final class ErrorMapper {
             int code = ((HttpException) error).code();
             return forHttpCode(context, code);
         }
+        if (error instanceof com.nightlight.app.data.repo.MusicRepository.HttpStatusException) {
+            String code = ((com.nightlight.app.data.repo.MusicRepository.HttpStatusException) error).code;
+            if ("SEARCH_UNAVAILABLE".equals(code)) {
+                return context.getString(R.string.error_search_unavailable);
+            }
+            if ("RATE_LIMITED".equals(code)) {
+                return context.getString(R.string.error_rate_limited);
+            }
+            int status = ((com.nightlight.app.data.repo.MusicRepository.HttpStatusException) error).status;
+            return forHttpCode(context, status);
+        }
         return context.getString(R.string.error_generic);
     }
 

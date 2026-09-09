@@ -107,6 +107,14 @@ public final class PlaybackManager {
 
     private long currentTrackStartedAt;
 
+    /**
+     * Play-threshold reporter for NightLight-owned popularity: a track counts
+     * as "played" once playback crosses min(30s, 50% of duration). Reported
+     * once per track load; the server re-validates and dedupes.
+     */
+    private static final long PLAY_THRESHOLD_MS = 30_000L;
+    private String playReportedTrackId;
+
     /** Debounce window for the next() action (one tap = one track). */
     private static final long NEXT_DEBOUNCE_MS = 350;
     private long lastNextAt;
@@ -140,6 +148,7 @@ public final class PlaybackManager {
         @Override
         public void run() {
             publish(false);
+            maybeReportPlayThreshold();
             if (snapshot.isPlaying && tickerRunning) {
                 main.postDelayed(this, 500);
             }
@@ -917,6 +926,7 @@ public final class PlaybackManager {
         }
         if (track != null && !track.id.equals(recordedTrackId)) {
             recordedTrackId = track.id;
+            playReportedTrackId = null;
             currentTrackStartedAt = System.currentTimeMillis();
             // The seed changed: bump the generation so any in-flight radio
             // response for the previous track is discarded instead of mutating
@@ -935,6 +945,46 @@ public final class PlaybackManager {
     /** This session's recently played tracks (for Smart Shuffle context). */
     public List<Track> getSessionRecent() {
         return new ArrayList<>(sessionRecent);
+    }
+
+    /**
+     * Reports a threshold-crossed play once per track load. Screen opens and
+     * bare playback starts never count — only sustained listening does.
+     * Fire-and-forget; safe to call from the 500ms ticker.
+     */
+    private void maybeReportPlayThreshold() {
+        PlaybackSnapshot snap = snapshot;
+        if (snap == null || !snap.isPlaying || snap.current == null || snap.current.id == null) {
+            return;
+        }
+        if (snap.current.id.equals(playReportedTrackId)) {
+            return;
+        }
+        long duration = snap.duration > 0 ? snap.duration : snap.current.durationMs;
+        if (duration <= 0) {
+            return;
+        }
+        long threshold = Math.min(PLAY_THRESHOLD_MS, duration / 2);
+        if (snap.position < threshold) {
+            return;
+        }
+        playReportedTrackId = snap.current.id;
+        List<String> artists = new ArrayList<>();
+        if (snap.current.artists != null) {
+            for (String part : snap.current.artists.split(",")) {
+                String name = part.trim();
+                if (!name.isEmpty()) {
+                    artists.add(name);
+                }
+            }
+        }
+        try {
+            NightLightApp nightLight = (NightLightApp) app.getApplicationContext();
+            nightLight.getLibraryRepository().reportPlayPosition(
+                    snap.current.id, snap.current.name, artists, snap.position, duration);
+        } catch (Exception ignored) {
+            // Popularity reporting must never disturb playback.
+        }
     }
 
     private Track trackFromMetadata(MediaMetadata metadata, String id) {
