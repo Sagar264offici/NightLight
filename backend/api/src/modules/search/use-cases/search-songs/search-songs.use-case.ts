@@ -31,7 +31,7 @@ export interface SearchSongsArgs {
  */
 const ITUNES_HITS = 10
 const ITUNES_BUDGET_MS = 6000
-const RESOLVE_BUDGET_MS = 8000
+const RESOLVE_BUDGET_MS = 5000
 const MAX_RESOLVES = 3
 const CANONICAL_CONFIRM_BOOST = 2
 
@@ -186,7 +186,7 @@ export class SearchSongsUseCase implements IUseCase<SearchSongsArgs, z.infer<typ
 
     const latencyMs = Date.now() - startedAt
     console.info(
-      `[search] rung=jiosaavn+itunes latencyMs=${latencyMs} pool=${pool.tracks.length} ` +
+      `[search] rung=jiosaavn(${pool.via})+itunes latencyMs=${latencyMs} pool=${pool.tracks.length} ` +
         `itunes=${itunesTracks.length} confirmed=${confirmed.size} page=${safePage}`
     )
 

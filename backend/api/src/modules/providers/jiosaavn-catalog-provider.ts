@@ -1,6 +1,6 @@
 import { Endpoints } from '#common/constants'
-import { useFetch } from '#common/helpers'
 import { canonicalKey, primaryArtistsOf } from '#modules/providers/identity'
+import { searchFetch } from '#modules/providers/search-transport'
 import { createSongPayload } from '#modules/songs/helpers'
 import { GetSongByIdUseCase } from '#modules/songs/use-cases'
 import type {
@@ -35,6 +35,8 @@ export interface JioSaavnPool {
   /** Upstream total for pagination. */
   total: number
   start: number
+  /** Which egress served the primary rung (observability). */
+  via: 'direct' | 'proxy'
 }
 
 /** Upstream page-size cap (also bounds client `limit`). */
@@ -76,11 +78,14 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
     const safeLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), MAX_JIOSAAVN_LIMIT)
     const safePage = Math.max(Math.floor(page) || 0, 0)
 
-    const { data } = await useFetch<z.infer<typeof SearchSongAPIResponseModel>>({
-      endpoint: Endpoints.search.songs,
-      params: { q: query, p: safePage, n: safeLimit }
+    const primary = await searchFetch<z.infer<typeof SearchSongAPIResponseModel>>(Endpoints.search.songs, {
+      q: query,
+      p: safePage,
+      n: safeLimit
     })
-    const primary: SongPayload[] = data.results?.map(createSongPayload).slice(0, safeLimit) || []
+    const data = primary.data
+    const via = primary.via
+    const primaryTracks: SongPayload[] = data.results?.map(createSongPayload).slice(0, safeLimit) || []
 
     let scores = new Map<string, number>()
     let enriched: SongPayload[] = []
@@ -107,10 +112,10 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
       seenKeys.add(key)
       tracks.push(song)
     }
-    for (const song of primary) consider(song)
+    for (const song of primaryTracks) consider(song)
     for (const song of enriched) consider(song)
 
-    return { tracks, scores, total: data.total, start: data.start }
+    return { tracks, scores, total: data.total, start: data.start, via }
   }
 
   async searchTracks(query: string, options: CatalogSearchOptions): Promise<CatalogTrack[]> {
@@ -138,10 +143,7 @@ export class JioSaavnCatalogProvider implements MusicCatalogProvider {
    */
   private async fetchAutocompleteSongs(query: string): Promise<{ songs: SongPayload[]; scores: Map<string, number> }> {
     const empty = { songs: [], scores: new Map<string, number>() }
-    const { data, ok } = await useFetch<AutocompleteResponse>({
-      endpoint: Endpoints.search.all,
-      params: { query }
-    })
+    const { data, ok } = await searchFetch<AutocompleteResponse>(Endpoints.search.all, { query })
     if (!ok || !data) return empty
 
     const hits: { id: string; score: number }[] = []
