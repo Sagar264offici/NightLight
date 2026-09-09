@@ -84,26 +84,20 @@ public final class NowPlayingActivity extends AppCompatActivity {
         ImageButton queueIcon = findViewById(R.id.np_queue_icon);
         View lyricsBox = findViewById(R.id.np_lyrics);
 
-        // Lyrics icon: state-list tint (cream normal, gold pressed/active, muted disabled).
-        // Applied in code so pressed/active branches animate at runtime, not just XML default.
-        ImageButton lyricsIcon = findViewById(R.id.np_lyrics_icon);
-        lyricsIcon.setImageTintList(android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(this, R.color.nightlight_cream)));
-        lyricsIcon.setOnTouchListener((v, ev) -> {
-            if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN) {
-                lyricsIcon.setColorFilter(ContextCompat.getColor(this, R.color.nightlight_gold));
-            } else if (ev.getAction() == android.view.MotionEvent.ACTION_UP
-                    || ev.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
-                lyricsIcon.setColorFilter(ContextCompat.getColor(this, R.color.nightlight_cream));
-            }
-            return false; // never consume - parent box handles the click
-        });
+        // Lyrics icon uses the state-list tint from XML (cream normal, gold
+        // pressed/active) — do NOT override it in code or the gold states break.
 
         findViewById(R.id.np_back).setOnClickListener(v -> finish());
         lyricsBox.setOnClickListener(v ->
                 startActivity(new android.content.Intent(this, LyricsActivity.class)));
         findViewById(R.id.np_share).setOnClickListener(v -> shareListenSession());
         playPause.setOnClickListener(v -> {
+            // Optimistic flip: the manager also publishes instantly, but the
+            // icon changes on this tap even before the snapshot round-trips.
+            PlaybackSnapshot cur = viewModel.getSnapshot().getValue();
+            if (cur != null) {
+                playPause.setImageResource(cur.isPlaying ? R.drawable.ic_play : R.drawable.ic_pause);
+            }
             viewModel.togglePlayPause();
             playPause.animate().scaleX(0.88f).scaleY(0.88f).setDuration(80)
                     .withEndAction(() -> playPause.animate().scaleX(1f).scaleY(1f).setDuration(140).start())
@@ -241,13 +235,12 @@ public final class NowPlayingActivity extends AppCompatActivity {
                 com.nightlight.app.util.AmbientAnimator.enter(artworkStage,
                         com.nightlight.app.util.PowerModes.get(this));
             }
-            int corner = Math.round(22f * getResources().getDisplayMetrics().density);
             Glide.with(this)
                     .load(track.imageUrl)
                     .placeholder(R.drawable.bg_artwork_placeholder_round)
                     .error(R.drawable.bg_artwork_placeholder_round)
                     .override(artworkPx, artworkPx)
-                    .transform(new com.bumptech.glide.load.resource.bitmap.RoundedCorners(corner))
+                    .circleCrop()
                     .into(artwork);
             Glide.with(this)
                     .load(track.imageUrl)
@@ -311,17 +304,24 @@ public final class NowPlayingActivity extends AppCompatActivity {
         }
     }
 
-    /** Gives the album art a large square footprint inside its stage. */
+    /** Compact circular art like the reference mock: capped so controls stay visible. */
     private void ensureArtworkSize() {
         if (artworkSized || artworkStage == null || artworkStage.getWidth() <= 0) {
             return;
         }
-        int side = Math.min(artworkStage.getWidth(), artworkStage.getHeight());
+        int stageSide = Math.min(artworkStage.getWidth(), artworkStage.getHeight());
+        if (stageSide <= 0) {
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        int maxPx = Math.round(300f * density);
+        int capByStage = Math.round(stageSide * 0.72f);
+        int side = Math.min(stageSide, Math.min(maxPx, capByStage));
         if (side <= 0) {
             return;
         }
         artworkSized = true;
-        int ringPad = Math.round(6f * getResources().getDisplayMetrics().density);
+        int ringPad = Math.round(6f * density);
         android.view.ViewGroup.LayoutParams ringLp = artworkRing.getLayoutParams();
         ringLp.width = side + ringPad;
         ringLp.height = side + ringPad;
@@ -349,22 +349,50 @@ public final class NowPlayingActivity extends AppCompatActivity {
                 liked ? R.color.nightlight_gold : R.color.nightlight_cream_dim));
     }
 
+    private boolean sharingInProgress;
+
     private void shareListenSession() {
+        if (sharingInProgress) return;
         if (com.nightlight.app.player.ListenTogether.get().isActive()) {
             com.nightlight.app.player.ListenTogether.shareCode(this,
                     com.nightlight.app.player.ListenTogether.get().activeCode());
             return;
         }
-        Toast.makeText(this, R.string.listen_starting, Toast.LENGTH_SHORT).show();
+        sharingInProgress = true;
+        androidx.appcompat.app.AlertDialog progress = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setMessage(getString(R.string.listen_starting))
+                .setCancelable(false)
+                .create();
+        progress.show();
+        // Safety timeout: never leave the UI stuck on a hung network call.
+        android.os.Handler timeoutHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable timeout = () -> {
+            if (sharingInProgress) {
+                sharingInProgress = false;
+                try { progress.dismiss(); } catch (Exception ignored) {}
+                Toast.makeText(NowPlayingActivity.this,
+                        "Couldn't start the session — check your connection", Toast.LENGTH_SHORT).show();
+            }
+        };
+        timeoutHandler.postDelayed(timeout, 15000);
         com.nightlight.app.player.ListenTogether.get().startHosting(this,
                 new com.nightlight.app.player.ListenTogether.CodeCallback() {
                     @Override
                     public void onCode(String code) {
+                        sharingInProgress = false;
+                        timeoutHandler.removeCallbacks(timeout);
+                        try { progress.dismiss(); } catch (Exception ignored) {}
+                        if (isFinishing() || isDestroyed()) return;
                         com.nightlight.app.player.ListenTogether.shareCode(NowPlayingActivity.this, code);
+                        updateChatButtonVisibility();
                     }
 
                     @Override
                     public void onError(String message) {
+                        sharingInProgress = false;
+                        timeoutHandler.removeCallbacks(timeout);
+                        try { progress.dismiss(); } catch (Exception ignored) {}
+                        if (isFinishing() || isDestroyed()) return;
                         Toast.makeText(NowPlayingActivity.this, message, Toast.LENGTH_SHORT).show();
                     }
                 });
@@ -463,9 +491,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
         listLp.bottomMargin = Math.round(8f * getResources().getDisplayMetrics().density);
         root.addView(messageList, listLp);
 
-        // Simple message adapter
+        // Simple message adapter with incremental updates (no full refresh lag).
         List<com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage> messages =
                 new ArrayList<>(lt.getChatMessages());
+        String myDeviceId = com.nightlight.app.util.TokenStore.getDeviceId();
         RecyclerView.Adapter<?> adapter = new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             @Override
             public int getItemCount() { return messages.size(); }
@@ -481,9 +510,10 @@ public final class NowPlayingActivity extends AppCompatActivity {
             public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
                 TextView tv = (TextView) holder.itemView;
                 com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage msg = messages.get(position);
-                boolean isMe = msg.deviceId != null
-                        && msg.deviceId.equals(com.nightlight.app.util.TokenStore.getDeviceId());
-                tv.setText((isMe ? "You" : msg.name) + ": " + msg.text);
+                boolean isMe = msg.deviceId != null && msg.deviceId.equals(myDeviceId);
+                String displayName = (msg.name != null && !msg.name.trim().isEmpty())
+                        ? msg.name.trim() : "Listener";
+                tv.setText(displayName + (isMe ? " (you)" : "") + ": " + (msg.text != null ? msg.text : ""));
                 tv.setTextColor(getColor(isMe ? R.color.nightlight_gold : R.color.nightlight_cream));
                 tv.setTextSize(14f);
                 int dp4 = Math.round(4f * getResources().getDisplayMetrics().density);
@@ -492,14 +522,31 @@ public final class NowPlayingActivity extends AppCompatActivity {
             }
         };
         messageList.setAdapter(adapter);
+        messageList.setItemAnimator(null);
 
-        // Scroll to bottom on new messages
+        // Scroll to bottom on new messages — incremental insert, instant jump.
         lt.setChatListener(msgs -> {
-            messages.clear();
-            messages.addAll(msgs);
-            adapter.notifyDataSetChanged();
+            int prev = messages.size();
+            java.util.Set<String> have = new java.util.HashSet<>();
+            for (com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage m : messages) {
+                if (m.id != null) have.add(m.id);
+            }
+            List<com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage> fresh = new ArrayList<>();
+            for (com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage m : msgs) {
+                if (m.id == null || have.add(m.id)) fresh.add(m);
+            }
+            if (fresh.isEmpty() && msgs.size() == prev) return;
+            if (fresh.isEmpty()) {
+                // Full resync (e.g. capped history): replace without animation.
+                messages.clear();
+                messages.addAll(msgs);
+                adapter.notifyDataSetChanged();
+            } else {
+                for (com.nightlight.app.data.api.dto.SessionsDtos.ChatMessage m : fresh) messages.add(m);
+                adapter.notifyItemRangeInserted(prev, fresh.size());
+            }
             if (!messages.isEmpty()) {
-                messageList.smoothScrollToPosition(messages.size() - 1);
+                messageList.scrollToPosition(messages.size() - 1);
             }
         });
 

@@ -17,6 +17,7 @@ public final class AccountPrefs {
 
     private static final String PREFS = "nightlight_account";
     private static final String KEY_EMAIL = "email";
+    private static final String KEY_USERNAME = "username";
     private static final String KEY_ONBOARDED = "onboarded";
     private static final String KEY_LANGUAGES = "languages";
     private static final String KEY_CATEGORIES = "categories";
@@ -50,6 +51,43 @@ public final class AccountPrefs {
 
     public static String email(Context context) {
         return prefs(context).getString(KEY_EMAIL, null);
+    }
+
+    /**
+     * Per-user display name shown in Listen Together chat. Never null after
+     * {@link #ensureUsername(Context)} — falls back to the email prefix or a
+     * stable guest name so every participant is distinguishable.
+     */
+    public static void setUsername(Context context, String username) {
+        String clean = username == null ? "" : username.trim();
+        prefs(context).edit().putString(KEY_USERNAME, clean).apply();
+    }
+
+    public static String username(Context context) {
+        return prefs(context).getString(KEY_USERNAME, null);
+    }
+
+    /**
+     * Returns the stored username, creating a sensible default on first use.
+     * Defaults derive from the email prefix (unique per account) or a stable
+     * guest suffix — never a shared constant like "Friend"/"You".
+     */
+    public static String ensureUsername(Context context) {
+        String existing = prefs(context).getString(KEY_USERNAME, null);
+        if (existing != null && !existing.trim().isEmpty()) {
+            return existing.trim();
+        }
+        String email = prefs(context).getString(KEY_EMAIL, null);
+        String fallback;
+        if (email != null && email.contains("@")) {
+            fallback = email.substring(0, email.indexOf('@')).replaceAll("[^A-Za-z0-9_.-]", "").trim();
+            if (fallback.isEmpty()) fallback = "Listener";
+            if (fallback.length() > 20) fallback = fallback.substring(0, 20);
+        } else {
+            fallback = "Guest-" + Math.abs(com.nightlight.app.util.TokenStore.getDeviceId().hashCode() % 9000 + 1000);
+        }
+        prefs(context).edit().putString(KEY_USERNAME, fallback).apply();
+        return fallback;
     }
 
     public static boolean isOnboarded(Context context) {

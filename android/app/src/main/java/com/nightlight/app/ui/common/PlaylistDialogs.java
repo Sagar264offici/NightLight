@@ -111,6 +111,18 @@ public final class PlaylistDialogs {
         progressText.setPadding(0, Math.round(10f * activity.getResources().getDisplayMetrics().density), 0, 0);
         root.addView(progressText);
 
+        // Determinate progress bar for live import counts (hidden initially)
+        android.widget.ProgressBar progressBar = new android.widget.ProgressBar(activity, null,
+                android.R.attr.progressBarStyleHorizontal);
+        progressBar.setVisibility(View.GONE);
+        progressBar.setMax(100);
+        progressBar.setProgress(0);
+        android.widget.LinearLayout.LayoutParams barLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                Math.round(6f * activity.getResources().getDisplayMetrics().density));
+        barLp.topMargin = Math.round(8f * activity.getResources().getDisplayMetrics().density);
+        root.addView(progressBar, barLp);
+
         // Result text (hidden initially)
         android.widget.TextView resultText = new android.widget.TextView(activity);
         resultText.setTextColor(activity.getColor(R.color.nightlight_cream));
@@ -183,26 +195,60 @@ public final class PlaylistDialogs {
                 return;
             }
 
-            // Start import.
+            // Start import (streaming progress when the server supports it).
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setEnabled(false);
             urlInput.setEnabled(false);
             progressText.setVisibility(View.VISIBLE);
-            progressText.setText("Reading playlist…");
+            progressText.setText("Reading playlist… 0 / …");
+            progressBar.setVisibility(View.VISIBLE);
+            progressBar.setIndeterminate(true);
             resultText.setVisibility(View.GONE);
 
             PlaylistRepository repo = ((NightLightApp) activity.getApplication()).getPlaylistRepository();
-            repo.importFromUrl(url, 200, new PlaylistRepository.ImportCallback() {
+            final int[] sourceTotal = {0};
+            repo.importFromUrl(url, 200, new PlaylistRepository.ImportProgressCallback() {
+                @Override
+                public void onSourceTotal(int total) {
+                    sourceTotal[0] = total;
+                }
+
+                @Override
+                public void onProgress(int done, int total, String currentTitle) {
+                    activity.runOnUiThread(() -> {
+                        int denom = total > 0 ? total : (sourceTotal[0] > 0 ? sourceTotal[0] : 0);
+                        String title = currentTitle != null && !currentTitle.isEmpty()
+                                ? " — " + (currentTitle.length() > 40 ? currentTitle.substring(0, 40) + "…" : currentTitle)
+                                : "";
+                        if (denom > 0) {
+                            progressBar.setIndeterminate(false);
+                            progressBar.setMax(denom);
+                            progressBar.setProgress(Math.min(done, denom));
+                            progressText.setText("Importing " + done + " / " + denom + " songs" + title);
+                        } else {
+                            progressBar.setIndeterminate(true);
+                            progressText.setText("Importing " + done + " songs…" + title);
+                        }
+                    });
+                }
+
                 @Override
                 public void onSuccess(String playlistName, List<Track> tracks, List<String> unmatched) {
                     activity.runOnUiThread(() -> {
+                        progressBar.setVisibility(View.GONE);
                         progressText.setText("Saving playlist…");
                         progressText.postDelayed(() -> {
                             progressText.setVisibility(View.GONE);
                             resultText.setVisibility(View.VISIBLE);
-                            String msg = "Imported " + tracks.size() + " songs";
-                            if (unmatched != null && !unmatched.isEmpty()) {
-                                msg += "\n" + unmatched.size() + " songs could not be matched";
+                            int imported = tracks.size();
+                            int failed = unmatched != null ? unmatched.size() : 0;
+                            int total = imported + failed;
+                            String msg = "Imported " + imported + " / " + total + " songs";
+                            if (playlistName != null && !playlistName.isEmpty()) {
+                                msg = "\"" + playlistName + "\": " + msg;
+                            }
+                            if (failed > 0) {
+                                msg += "\n" + failed + " songs could not be matched";
                             }
                             resultText.setText(msg);
                             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
@@ -213,6 +259,7 @@ public final class PlaylistDialogs {
                 @Override
                 public void onFailure(Throwable error) {
                     activity.runOnUiThread(() -> {
+                        progressBar.setVisibility(View.GONE);
                         progressText.setVisibility(View.GONE);
                         resultText.setVisibility(View.VISIBLE);
                         resultText.setText("Import failed — check the URL and try again");

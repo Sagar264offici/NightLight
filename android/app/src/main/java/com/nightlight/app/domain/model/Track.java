@@ -23,9 +23,16 @@ public final class Track {
     public final String streamUrl;
     public final long durationMs;
     public final String year;
+    /** Global play count (JioSaavn) — drives popularity ranking in search & shuffle. 0 = unknown. */
+    public final long playCount;
 
     public Track(String id, String name, String artists, String album, String imageUrl,
                  String streamUrl, long durationMs, String year) {
+        this(id, name, artists, album, imageUrl, streamUrl, durationMs, year, 0L);
+    }
+
+    public Track(String id, String name, String artists, String album, String imageUrl,
+                 String streamUrl, long durationMs, String year, long playCount) {
         this.id = id;
         this.name = name;
         this.artists = artists;
@@ -34,15 +41,17 @@ public final class Track {
         this.streamUrl = streamUrl;
         this.durationMs = durationMs;
         this.year = year;
+        this.playCount = playCount;
     }
 
     public Track withStreamUrl(String url) {
-        return new Track(id, name, artists, album, imageUrl, url, durationMs, year);
+        return new Track(id, name, artists, album, imageUrl, url, durationMs, year, playCount);
     }
 
     public static Track fromSong(SongDtos.SongDto song) {
         String artists = joinArtists(song.artists != null ? song.artists.primary : null);
         long durationMs = song.duration != null ? song.duration * 1000L : 0L;
+        long plays = song.playCount != null ? song.playCount.longValue() : 0L;
         return new Track(
                 song.id,
                 song.name != null ? song.name : "Unknown track",
@@ -51,7 +60,8 @@ public final class Track {
                 bestImage(song.image),
                 bestDownloadUrl(song.downloadUrl),
                 durationMs,
-                song.year != null ? song.year : "");
+                song.year != null ? song.year : "",
+                Math.max(0L, plays));
     }
 
     public static Track fromSnapshot(UserDtos.TrackSnapshotDto s) {

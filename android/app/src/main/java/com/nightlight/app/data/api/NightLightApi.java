@@ -118,6 +118,11 @@ public interface NightLightApi {
     @POST("import/playlist")
     Call<ApiResponse<ImportDtos.ImportResultDto>> importPlaylist(@Body Requests.ImportRequest body);
 
+    /** Streaming conversion with NDJSON progress events {type:progress/done/error}. */
+    @POST("import/playlist/stream")
+    @retrofit2.http.Streaming
+    Call<okhttp3.ResponseBody> importPlaylistStream(@Body Requests.ImportRequest body);
+
     // Context
     @GET("context/weather")
     Call<ApiResponse<WeatherDtos.WeatherDto>> getWeather();

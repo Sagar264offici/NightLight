@@ -132,16 +132,17 @@
             <SeekBar
                 android:id="@+id/np_seek"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="36dp"
                 android:layout_marginTop="6dp"
                 android:max="1000"
-                android:minHeight="36dp"
+                android:maxHeight="6dp"
+                android:minHeight="6dp"
                 android:paddingStart="0dp"
                 android:paddingEnd="0dp"
                 android:progressDrawable="@drawable/bg_seek_progress"
                 android:splitTrack="false"
                 android:thumb="@drawable/bg_seek_thumb"
-                android:thumbOffset="10dp" />
+                android:thumbOffset="8dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"

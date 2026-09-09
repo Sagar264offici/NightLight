@@ -47,6 +47,14 @@ public final class PlaylistRepository {
         void onFailure(Throwable error);
     }
 
+    /** Live import progress: done/total track counts plus the current title. */
+    public interface ImportProgressCallback extends ImportCallback {
+        void onProgress(int done, int total, String currentTitle);
+
+        /** Full source size when known (Spotify total); -1 otherwise. */
+        default void onSourceTotal(int sourceTotal) {}
+    }
+
     public interface IdCallback {
         void onDone(String playlistId, boolean success);
     }
@@ -175,6 +183,10 @@ public final class PlaylistRepository {
      * tracks (matched server-side). Callbacks arrive on the main thread.
      */
     public void importFromUrl(String url, int limit, final ImportCallback callback) {
+        if (callback instanceof ImportProgressCallback) {
+            importFromUrlStreaming(url, limit, (ImportProgressCallback) callback);
+            return;
+        }
         api.importPlaylist(new Requests.ImportRequest(url, limit))
                 .enqueue(new Callback<ApiResponse<ImportDtos.ImportResultDto>>() {
                     @Override
@@ -204,6 +216,72 @@ public final class PlaylistRepository {
                         callback.onFailure(t);
                     }
                 });
+    }
+
+    /**
+     * Streaming import: reads NDJSON progress events so the UI can show
+     * "12 / 87 songs" live instead of a static spinner. Falls back to the
+     * single-shot endpoint if streaming fails.
+     */
+    public void importFromUrlStreaming(String url, int limit, final ImportProgressCallback callback) {
+        AppExecutors.get().io().execute(() -> {
+            try {
+                retrofit2.Response<okhttp3.ResponseBody> resp =
+                        api.importPlaylistStream(new Requests.ImportRequest(url, limit)).execute();
+                okhttp3.ResponseBody body = resp.body();
+                if (!resp.isSuccessful() || body == null) {
+                    throw new java.io.IOException("stream failed: " + resp.code());
+                }
+                org.json.JSONObject donePayload = null;
+                try (okio.BufferedSource source = body.source()) {
+                    while (!source.exhausted()) {
+                        String line = source.readUtf8Line();
+                        if (line == null) break;
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+                        org.json.JSONObject evt;
+                        try {
+                            evt = new org.json.JSONObject(line);
+                        } catch (org.json.JSONException ignored) {
+                            continue;
+                        }
+                        String type = evt.optString("type", "");
+                        if ("progress".equals(type)) {
+                            int done = evt.optInt("done", 0);
+                            int total = evt.optInt("total", 0);
+                            String title = evt.optString("currentTitle", "");
+                            AppExecutors.onMain(() -> callback.onProgress(done, total, title));
+                        } else if ("done".equals(type)) {
+                            donePayload = evt.optJSONObject("data");
+                            break;
+                        } else if ("error".equals(type)) {
+                            String msg = evt.optString("message", "Import failed");
+                            throw new java.io.IOException(msg);
+                        }
+                    }
+                }
+                if (donePayload == null) throw new java.io.IOException("stream ended without result");
+                com.google.gson.Gson gson = new com.google.gson.Gson();
+                ImportDtos.ImportResultDto data = gson.fromJson(
+                        donePayload.toString(), ImportDtos.ImportResultDto.class);
+                List<Track> tracks = new ArrayList<>();
+                if (data.results != null) {
+                    for (SongDtos.SongDto song : data.results) {
+                        if (song.id != null) tracks.add(Track.fromSong(song));
+                    }
+                }
+                List<String> unmatched = data.unmatched != null ? data.unmatched : new ArrayList<>();
+                String name = data.playlistName;
+                int sourceTotal = data.sourceTotal;
+                AppExecutors.onMain(() -> {
+                    if (sourceTotal > 0) callback.onSourceTotal(sourceTotal);
+                    callback.onSuccess(name, tracks, unmatched);
+                });
+            } catch (Exception e) {
+                // Fallback to single-shot import so older servers still work.
+                AppExecutors.onMain(() -> importFromUrl(url, limit, callback));
+            }
+        });
     }
 
     // ---- Tracks ----

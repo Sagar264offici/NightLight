@@ -659,6 +659,64 @@ public final class LoginActivity extends AppCompatActivity {
         setBusy(false);
         AccountPrefs.setEmail(this, email);
         AccountPrefs.clearGuest(this);
+        // Every account needs a unique display name for Listen Together chat.
+        // Ask once — prefill with the email prefix so it's unique per user.
+        String existing = AccountPrefs.username(this);
+        if (existing == null || existing.trim().isEmpty()) {
+            promptUsername();
+            return;
+        }
+        continueAfterAuth();
+    }
+
+    /** Asks for a chat display name once per account; never shared across users. */
+    private void promptUsername() {
+        String emailVal = email != null ? email : "";
+        String prefill = emailVal.contains("@") ? emailVal.substring(0, emailVal.indexOf('@')) : "";
+        prefill = prefill.replaceAll("[^A-Za-z0-9_.-]", "").trim();
+        if (prefill.length() > 20) prefill = prefill.substring(0, 20);
+
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(prefill);
+        input.setSelection(input.getText() != null ? input.getText().length() : 0);
+        input.setHint("e.g. sagar_music");
+        int pad = dp(16);
+        input.setPadding(pad, pad, pad, pad);
+        android.widget.FrameLayout container = new android.widget.FrameLayout(this);
+        container.setPadding(dp(8), 0, dp(8), 0);
+        container.addView(input);
+
+        androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Choose a username")
+                .setMessage("This name shows in Listen Together chat so friends know who you are.")
+                .setView(container)
+                .setCancelable(false)
+                .setPositiveButton("Save", null)
+                .create();
+        dialog.show();
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String name = input.getText() == null ? "" : input.getText().toString().trim();
+            if (name.length() < 3) {
+                input.setError("Use at least 3 characters");
+                return;
+            }
+            if (name.length() > 20) {
+                input.setError("Keep it under 20 characters");
+                return;
+            }
+            if (name.equalsIgnoreCase("you") || name.equalsIgnoreCase("friend")) {
+                input.setError("Pick something more personal");
+                return;
+            }
+            AccountPrefs.setUsername(LoginActivity.this, name);
+            dialog.dismiss();
+            continueAfterAuth();
+        });
+    }
+
+    private void continueAfterAuth() {
+        AccountPrefs.ensureUsername(this);
         Intent target = auth.isOnboarded()
                 ? new Intent(this, MainActivity.class)
                 : new Intent(this, OnboardingActivity.class);

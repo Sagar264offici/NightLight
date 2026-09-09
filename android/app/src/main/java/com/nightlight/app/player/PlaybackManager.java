@@ -352,6 +352,20 @@ public final class PlaybackManager {
         if (controller == null) {
             return;
         }
+        // Optimistic UI: flip the icon instantly so the button never feels
+        // late — Media3 IPC + buffering delay the real event by 100-400ms.
+        boolean willPlay = !controller.isPlaying();
+        if (snapshot != null && snapshot.current != null && snapshot.isPlaying != willPlay) {
+            PlaybackSnapshot optimistic = new PlaybackSnapshot(
+                    snapshot.current, willPlay, willPlay, snapshot.position,
+                    snapshot.duration, snapshot.hasQueue, snapshot.repeatMode,
+                    snapshot.shuffle, snapshot.error, snapshot.queueSize,
+                    snapshot.currentIndex, snapshot.connected);
+            snapshot = optimistic;
+            for (Listener l : listeners) {
+                l.onPlaybackChanged(optimistic);
+            }
+        }
         if (controller.isPlaying()) {
             controller.pause();
         } else {

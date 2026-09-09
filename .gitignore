@@ -21,17 +21,17 @@ android/local.properties
 .DS_Store
 Thumbs.db
 
-# ---- Backend ----
+# ---- Backend (monorepo: backend/api, backend/spotify-lyrics) ----
 node_modules/
-jiosaavn-api-0.1.0/node_modules/
-jiosaavn-api-0.1.0/dist/
-jiosaavn-api-0.10/dist/
+backend/api/node_modules/
+backend/api/dist/
+backend/spotify-lyrics/vendor/
 
 # Secrets — never commit credentials
 .env
 .env.*
 !.env.example
-jiosaavn-api-0.1.0/.env
+backend/api/.env
 **/atlas-credentials*
 *.pem
 # Tooling / editor workspace

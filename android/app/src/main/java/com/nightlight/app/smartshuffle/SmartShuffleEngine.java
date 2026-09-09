@@ -85,12 +85,14 @@ public final class SmartShuffleEngine {
         Set<String> skipped = skipArtists != null ? skipArtists : Collections.<String>emptySet();
         Set<String> liked = likedIds != null ? likedIds : Collections.<String>emptySet();
 
-        // Session recency windows (max 8 tracks back).
+        // Session recency windows (max 15 tracks back — longer memory stops the
+        // same 4-5 songs looping when the candidate pool is small).
         Map<String, Integer> recentTracks = new HashMap<>();
         Map<String, Integer> recentArtists = new HashMap<>();
         Map<String, Integer> recentAlbums = new HashMap<>();
-        for (int i = Math.max(0, recentSafe.size() - 8); i < recentSafe.size(); i++) {
+        for (int i = Math.max(0, recentSafe.size() - 15); i < recentSafe.size(); i++) {
             Track t = recentSafe.get(i);
+            if (t == null || t.id == null) continue;
             recentTracks.merge(t.id, 1, Integer::sum);
             recentArtists.merge(norm(t.artists), 1, Integer::sum);
             recentAlbums.merge(norm(t.album), 1, Integer::sum);
@@ -103,7 +105,8 @@ public final class SmartShuffleEngine {
         while (!pool.isEmpty()) {
             Track chosen;
             // Deterministic diversity guard: never extend a same-artist or
-            // same-album run to three consecutive slots while other candidates
+            // same-album run to three consecutive slots, and never allow the
+            // same artist 3x in any rolling window of 5 while alternatives
             // exist. Weighted randomness still decides everything else.
             String lastArtist = out.isEmpty() ? null : norm(out.get(out.size() - 1).artists);
             String lastAlbum = out.isEmpty() ? null : norm(out.get(out.size() - 1).album);
@@ -113,7 +116,8 @@ public final class SmartShuffleEngine {
             boolean albumRun = prevAlbum != null && prevAlbum.equals(lastAlbum);
 
             if (discovery > 0 && random.nextDouble() < discovery) {
-                chosen = pool.remove(random.nextInt(pool.size()));
+                chosen = pickDiscovery(pool, lastArtist, lastAlbum, artistRun, albumRun, out);
+                pool.remove(chosen);
             } else {
                 double[] weights = new double[pool.size()];
                 double total = 0;
@@ -126,6 +130,9 @@ public final class SmartShuffleEngine {
                     }
                     if (albumRun && norm(t.album).equals(lastAlbum)) {
                         w = 0; // would make three same-album slots in a row
+                    }
+                    if (w > 0 && countArtistInTail(out, norm(t.artists), 4) >= 2) {
+                        w = 0; // same artist already 2x in last 4 — force variety
                     }
                     weights[i] = Math.max(0, w);
                     total += weights[i];
@@ -188,20 +195,30 @@ public final class SmartShuffleEngine {
         // nudge — never a hard filter.
         double genre = 0.06 * Math.min(3, keywordOverlap(album, norm(ctx.seedAlbum)));
         double like = likedIds.contains(t.id) ? 0.12 : 0;
-        double relevance = Math.min(1.0, 0.45 * mood + seedArtist + seedAlbum + genre + like + 0.15);
+        // Global-hit affinity (Spotify-like "most likely next"): tracks the
+        // world plays most get a bounded boost so e.g. after Ed Sheeran's
+        // "Perfect", fellow global hits (Thinking Out Loud, Shape of You)
+        // outrank obscure same-title covers. Log scale, capped so relevance
+        // still beats raw fame.
+        double fame = 0;
+        if (t.playCount > 0) {
+            double log = Math.log10((double) t.playCount + 1.0);
+            fame = Math.min(0.30, Math.max(0, (log - 3.0) * 0.06));
+        }
+        double relevance = Math.min(1.0, 0.45 * mood + seedArtist + seedAlbum + genre + like + fame + 0.15);
 
-        // Anti-repetition penalties.
+        // Anti-repetition penalties (strengthened so small pools can't loop 4-5 songs).
         double penalty = 0;
         if (recentTracks.containsKey(t.id)) {
-            penalty += 0.9;
+            penalty += 1.6;
         }
         int ar = recentArtists.getOrDefault(artist, 0) + inArtists.getOrDefault(artist, 0);
         if (ar > 0) {
-            penalty += 0.40 * Math.min(2, ar);
+            penalty += 0.65 * Math.min(3, ar);
         }
         int al = recentAlbums.getOrDefault(album, 0) + inAlbums.getOrDefault(album, 0);
         if (al > 0) {
-            penalty += 0.20 * Math.min(2, al);
+            penalty += 0.30 * Math.min(3, al);
         }
         // Repeated skips this session are a weak negative signal for the artist.
         if (skipArtists.contains(artist)) {
@@ -221,6 +238,30 @@ public final class SmartShuffleEngine {
             }
         }
         return weights.length - 1;
+    }
+
+    /** Discovery pick that still respects the no-3-in-a-row + 2-in-4 diversity guards. */
+    private Track pickDiscovery(List<Track> pool, String lastArtist, String lastAlbum,
+                                boolean artistRun, boolean albumRun, List<Track> out) {
+        List<Track> eligible = new ArrayList<>();
+        for (Track t : pool) {
+            String a = norm(t.artists);
+            if (artistRun && lastArtist != null && a.equals(lastArtist)) continue;
+            if (albumRun && lastAlbum != null && norm(t.album).equals(lastAlbum)) continue;
+            if (countArtistInTail(out, a, 4) >= 2) continue;
+            eligible.add(t);
+        }
+        List<Track> source = eligible.isEmpty() ? pool : eligible;
+        return source.get(random.nextInt(source.size()));
+    }
+
+    private static int countArtistInTail(List<Track> out, String artist, int tail) {
+        if (artist == null) return 0;
+        int n = 0;
+        for (int i = Math.max(0, out.size() - tail); i < out.size(); i++) {
+            if (artist.equals(norm(out.get(i).artists))) n++;
+        }
+        return n;
     }
 
     private static void dec(Map<String, Integer> map, String key) {

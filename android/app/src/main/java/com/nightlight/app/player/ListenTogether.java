@@ -66,7 +66,11 @@ public final class ListenTogether {
     private final AtomicLong lastChatPoll = new AtomicLong(0);
     private final List<SessionsDtos.ChatMessage> chatMessages =
             Collections.synchronizedList(new ArrayList<>());
-    private ChatListener chatListener;
+    /** O(1) dedupe — rebuilt only when the list is cleared. */
+    private final java.util.Set<String> knownChatIds =
+            Collections.synchronizedSet(new java.util.HashSet<>());
+    private static final int MAX_CHAT_LOCAL = 100;
+    private volatile ChatListener chatListener;
     private ScheduledExecutorService chatExecutor;
 
     public interface ChatListener {
@@ -84,23 +88,37 @@ public final class ListenTogether {
     public void sendChatMessage(Context context, String message, final com.nightlight.app.data.api.NightLightApi apiCallback) {
         final String code = activeCode.get();
         if (code == null) return;
+        final String trimmed = message == null ? "" : message.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 280) return;
+        final Context app = context.getApplicationContext();
+        final String myName = com.nightlight.app.util.AccountPrefs.ensureUsername(app);
+        final String deviceId = TokenStore.getDeviceId();
         executor.execute(() -> {
             SessionsDtos.ChatSendRequest req = new SessionsDtos.ChatSendRequest(
-                    TokenStore.getDeviceId(), "You", message);
+                    deviceId, myName, trimmed);
             try {
                 ApiResponse<SessionsDtos.ChatMessage> body =
-                        ApiClient.nightLightApi(context).sendChatMessage(code, req).execute().body();
-                // Optimistic local add.
+                        ApiClient.nightLightApi(app).sendChatMessage(code, req).execute().body();
+                // Optimistic local add (server echo arrives via poll; dedupe by id).
                 SessionsDtos.ChatMessage local = new SessionsDtos.ChatMessage();
-                local.id = body != null && body.data != null ? body.data.id : String.valueOf(System.currentTimeMillis());
-                local.deviceId = TokenStore.getDeviceId();
-                local.name = "You";
-                local.text = message;
-                local.createdAt = System.currentTimeMillis();
-                chatMessages.add(local);
-                if (chatListener != null) {
-                    List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
-                    AppExecutors.onMain(() -> chatListener.onMessages(snapshot));
+                local.id = body != null && body.data != null && body.data.id != null
+                        ? body.data.id : ("local-" + System.currentTimeMillis() + "-" + deviceId.hashCode());
+                local.deviceId = deviceId;
+                local.name = body != null && body.data != null && body.data.name != null
+                        ? body.data.name : myName;
+                local.text = trimmed;
+                local.createdAt = body != null && body.data != null && body.data.createdAt > 0
+                        ? body.data.createdAt : System.currentTimeMillis();
+                if (knownChatIds.add(local.id)) {
+                    chatMessages.add(local);
+                    pruneChat();
+                    if (chatListener != null) {
+                        List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
+                        AppExecutors.onMain(() -> {
+                            ChatListener l = chatListener;
+                            if (l != null) l.onMessages(snapshot);
+                        });
+                    }
                 }
             } catch (Exception e) {
                 Log.w(TAG, "chat send failed", e);
@@ -115,7 +133,7 @@ public final class ListenTogether {
             t.setDaemon(true);
             return t;
         });
-        chatExecutor.scheduleAtFixedRate(this::pollChat, 1500, 2000, TimeUnit.MILLISECONDS);
+        chatExecutor.scheduleAtFixedRate(this::pollChat, 800, 1500, TimeUnit.MILLISECONDS);
     }
 
     public void stopChatPolling() {
@@ -133,31 +151,46 @@ public final class ListenTogether {
             ApiResponse<SessionsDtos.ChatMessagesResponse> body =
                     ApiClient.nightLightApi(appContext).getChatMessages(code, after).execute().body();
             if (body != null && body.success && body.data != null && !body.data.isEmpty()) {
-                // Dedupe by id (defensive) and only advance the cursor to the
-                // newest received createdAt so gaps heal on the next poll.
+                // Dedupe by id via the persistent known-set (O(1)) and only
+                // advance the cursor to the newest received createdAt.
                 long newest = after;
-                java.util.Set<String> known = new java.util.HashSet<>();
-                for (SessionsDtos.ChatMessage m : chatMessages) known.add(m.id);
                 List<SessionsDtos.ChatMessage> fresh = new ArrayList<>();
                 for (SessionsDtos.ChatMessage m : body.data) {
-                    if (known.add(m.id)) {
+                    if (m == null || m.id == null) continue;
+                    if (knownChatIds.add(m.id)) {
                         fresh.add(m);
+                        newest = Math.max(newest, m.createdAt);
+                    } else if (m.createdAt > newest) {
                         newest = Math.max(newest, m.createdAt);
                     }
                 }
                 if (!fresh.isEmpty()) {
                     chatMessages.addAll(fresh);
+                    pruneChat();
+                    lastChatPoll.set(newest);
                     if (chatListener != null) {
                         List<SessionsDtos.ChatMessage> snapshot = new ArrayList<>(chatMessages);
-                        AppExecutors.onMain(() -> chatListener.onMessages(snapshot));
+                        AppExecutors.onMain(() -> {
+                            ChatListener l = chatListener;
+                            if (l != null) l.onMessages(snapshot);
+                        });
                     }
                 }
-                lastChatPoll.set(newest);
-            } else {
-                lastChatPoll.set(System.currentTimeMillis());
             }
+            // On empty: keep the cursor — advancing to now() would skip messages
+            // with clock skew. The next tick re-queries the same range cheaply.
         } catch (Exception e) {
             // Transient network gap — retry next tick.
+        }
+    }
+
+    /** Keeps the local chat buffer bounded so rendering stays O(100), not O(n). */
+    private void pruneChat() {
+        while (chatMessages.size() > MAX_CHAT_LOCAL) {
+            SessionsDtos.ChatMessage removed = chatMessages.remove(0);
+            if (removed != null && removed.id != null) {
+                // Keep the id reserved so a late poll echo can't re-insert it.
+            }
         }
     }
 
@@ -189,11 +222,11 @@ public final class ListenTogether {
             callback.onError("Nothing is playing to share");
             return;
         }
+        final String myName = com.nightlight.app.util.AccountPrefs.ensureUsername(appContext);
         executor.execute(() -> {
             SessionsDtos.CreateRequest req = new SessionsDtos.CreateRequest();
             req.deviceId = TokenStore.getDeviceId();
-            req.name = com.nightlight.app.util.AccountPrefs.email(context) != null
-                ? com.nightlight.app.util.AccountPrefs.email(context) : "Host";
+            req.name = myName;
             req.track = toSnapshot(track);
             try {
                 ApiResponse<SessionsDtos.SessionDto> body =
@@ -235,6 +268,7 @@ public final class ListenTogether {
         hosting.set(false);
         activeCode.set(null);
         chatMessages.clear();
+        knownChatIds.clear();
         lastChatPoll.set(0);
         stopChatPolling();
         ScheduledFuture<?> host = hostPublishFuture;
@@ -286,11 +320,12 @@ public final class ListenTogether {
 
     public void join(Context context, String code, CodeCallback callback) {
         appContext = context.getApplicationContext();
+        final String myName = com.nightlight.app.util.AccountPrefs.ensureUsername(appContext);
         executor.execute(() -> {
             SessionsDtos.JoinRequest req = new SessionsDtos.JoinRequest();
             req.code = code.trim().toUpperCase();
             req.deviceId = TokenStore.getDeviceId();
-            req.name = "Friend";
+            req.name = myName;
             try {
                 ApiResponse<SessionsDtos.SessionDto> body =
                         ApiClient.nightLightApi(appContext).joinSession(req).execute().body();
