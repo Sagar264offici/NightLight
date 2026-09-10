@@ -191,20 +191,19 @@ public final class NowPlayingActivity extends AppCompatActivity {
     }
 
     /**
-     * Starts the ambient motion system for the current power mode. Rebuilt only
-     * when mode/playing-state actually changes (render() runs every tick).
+     * Starts the ambient motion system. Rebuilt only when playing-state
+     * actually changes (render() runs every tick).
      */
     private void startAmbient() {
-        String mode = com.nightlight.app.util.PowerModes.get(this);
         PlaybackSnapshot s = viewModel.getSnapshot().getValue();
         boolean playing = s != null && s.isPlaying;
-        String key = mode + ":" + playing;
+        String key = "ambient:" + playing;
         if (key.equals(ambientKey) && ambient != null) {
             return;
         }
         ambientKey = key;
         stopAmbient();
-        ambient = com.nightlight.app.util.AmbientAnimator.forNowPlaying(mode, artwork, backdrop, artworkRing);
+        ambient = com.nightlight.app.util.AmbientAnimator.forNowPlaying(artwork, backdrop, artworkRing);
         ambient.start();
     }
 
@@ -243,8 +242,7 @@ public final class NowPlayingActivity extends AppCompatActivity {
                 artist.setAlpha(0f);
                 title.animate().alpha(1f).setDuration(340).setStartDelay(70).start();
                 artist.animate().alpha(1f).setDuration(340).setStartDelay(130).start();
-                com.nightlight.app.util.AmbientAnimator.enter(artworkStage,
-                        com.nightlight.app.util.PowerModes.get(this));
+                com.nightlight.app.util.AmbientAnimator.enter(artworkStage);
                 startVinylRotation();
             }
             Glide.with(this)
@@ -281,23 +279,19 @@ public final class NowPlayingActivity extends AppCompatActivity {
     }
 
     /**
-     * Tunes visuals + work to the power profile (see PlaybackProfile for the
-     * measurable per-mode differences: tick cadence, prefetch, stream
-     * quality live in PlaybackManager/MusicRepository; artwork decode size,
-     * backdrop and ambient motion live here).
+     * Applies the single balanced playback profile. Artwork decode size,
+     * backdrop alpha, and ambient motion are fixed to balanced defaults
+     * (900px decode, 0.52 alpha, motion enabled when playing).
      */
     private void applyPowerMode(boolean playing) {
-        com.nightlight.app.util.PlaybackProfile profile =
-                com.nightlight.app.util.PlaybackProfile.forMode(
-                        com.nightlight.app.util.PowerModes.get(this));
-        int px = profile.artworkDecodePx;
+        int px = 900;
         if (px != artworkPx) {
             artworkPx = px;
             artworkSized = false;
             ensureArtworkSize();
         }
-        backdrop.setAlpha(profile.backdropAlpha);
-        if (profile.ambientMotion) {
+        backdrop.setAlpha(0.52f);
+        if (playing) {
             startAmbient();
         } else {
             stopAmbient();

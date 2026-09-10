@@ -39,7 +39,6 @@ public final class SettingsActivity extends AppCompatActivity {
         TextView version = findViewById(R.id.settings_version);
         version.setText(getString(R.string.settings_version, BuildConfig.VERSION_NAME));
 
-        wirePowerMode();
         wireShuffleMode();
         wireDiscovery();
         wireListenTogether();
@@ -178,29 +177,6 @@ public final class SettingsActivity extends AppCompatActivity {
         });
     }
 
-    private void wirePowerMode() {
-        int[] rows = {R.id.settings_power_low, R.id.settings_power_balanced, R.id.settings_power_high};
-        String[] modes = {com.nightlight.app.util.PowerModes.LOW,
-                com.nightlight.app.util.PowerModes.BALANCED,
-                com.nightlight.app.util.PowerModes.HIGH};
-        String[] labels = {getString(R.string.power_low),
-                getString(R.string.power_balanced),
-                getString(R.string.power_high)};
-
-        for (int i = 0; i < rows.length; i++) {
-            final int index = i;
-            View row = findViewById(rows[i]);
-            row.setOnClickListener(v -> {
-                com.nightlight.app.util.PowerModes.set(this, modes[index]);
-                renderPowerMode(modes, labels);
-                Toast.makeText(this,
-                        getString(R.string.power_mode_saved, labels[index]),
-                        Toast.LENGTH_SHORT).show();
-            });
-        }
-        renderPowerMode(modes, labels);
-    }
-
     private void wireListenTogether() {
         findViewById(R.id.settings_listen_share).setOnClickListener(v -> {
             if (com.nightlight.app.player.ListenTogether.get().isActive()) {
@@ -258,19 +234,6 @@ public final class SettingsActivity extends AppCompatActivity {
                         Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_SHORT).show();
                     }
                 });
-    }
-
-    private void renderPowerMode(String[] modes, String[] labels) {
-        String current = com.nightlight.app.util.PowerModes.get(this);
-        int[] rows = {R.id.settings_power_low, R.id.settings_power_balanced, R.id.settings_power_high};
-        for (int i = 0; i < modes.length; i++) {
-            View row = findViewById(rows[i]);
-            TextView title = (TextView) ((ViewGroup) row).getChildAt(0);
-            boolean active = modes[i].equals(current);
-            title.setTextColor(getColor(active
-                    ? R.color.nightlight_gold : R.color.nightlight_cream));
-            title.setTypeface(null, active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-        }
     }
 
     /** Account section: signed-in email + sign out (clears session + onboarding). */

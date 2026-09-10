@@ -131,19 +131,9 @@ public final class MusicRepository {
         this.nightLightApi = ApiClient.nightLightApi(app);
     }
 
-    /**
-     * Maps a provider song honoring the power profile: LOW mode prefers
-     * 160kbps streams (data/battery), other modes prefer 320kbps. The
-     * fallback chain is identical, so resolution never breaks.
-     */
+    /** Maps a provider song — always prefers 320kbps (single balanced profile). */
     private Track mapSong(SongDtos.SongDto song) {
-        boolean highQuality = true;
-        try {
-            highQuality = com.nightlight.app.util.PlaybackProfile.forMode(
-                    com.nightlight.app.util.PowerModes.get(app)).preferHighQuality;
-        } catch (Exception ignored) {
-        }
-        return Track.fromSong(song, highQuality);
+        return Track.fromSong(song, true);
     }
 
     public void searchSongs(String query, int page, int limit, SearchCallback callback) {

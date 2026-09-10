@@ -200,6 +200,22 @@ public final class AccountPrefs {
         return !languages(context).isEmpty() || !categories(context).isEmpty();
     }
 
+    public static String photoUrl(Context context) {
+        return prefs(context).getString("photo_url", null);
+    }
+
+    public static String profileName(Context context) {
+        String name = prefs(context).getString("profile_name", null);
+        return name != null ? name : username(context);
+    }
+
+    public static boolean isValidUsername(String raw) {
+        if (raw == null) return false;
+        String s = raw.trim();
+        if (s.length() < 3 || s.length() > 20) return false;
+        return s.matches("[A-Za-z0-9_.-]+");
+    }
+
     // Referenced by unit-ish callers; keeps constants visible for logging/tests.
     public static Set<String> languageChoices() {
         return new HashSet<>(Arrays.asList(

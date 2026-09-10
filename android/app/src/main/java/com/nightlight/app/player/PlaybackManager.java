@@ -133,11 +133,10 @@ public final class PlaybackManager {
         }
     };
 
-    /**
-     * Proactive radio top-up thresholds now live in {@link
-     * com.nightlight.app.util.PlaybackProfile} (per power mode: LOW
-     * disables prefetch, HIGH prefetches deeper).
-     */
+    /** Fixed tick cadence (balanced profile, 500ms). */
+    private static final long TICKER_MS = 500L;
+    /** Fixed top-up threshold (balanced profile, 6 remaining). */
+    private static final int TOPUP_THRESHOLD = 6;
 
     private final Runnable ticker = new Runnable() {
         @Override
@@ -145,20 +144,13 @@ public final class PlaybackManager {
             publish(false);
             maybeReportPlayThreshold();
             if (snapshot.isPlaying && tickerRunning) {
-                main.postDelayed(this, tickerIntervalMs());
+                main.postDelayed(this, TICKER_MS);
             }
         }
     };
 
-    /** UI tick cadence comes from the power profile (LOW saves wakeups). */
     private long tickerIntervalMs() {
-        try {
-            return com.nightlight.app.util.PlaybackProfile
-                    .forMode(com.nightlight.app.util.PowerModes.get(app))
-                    .tickerMs;
-        } catch (Exception e) {
-            return 500L;
-        }
+        return TICKER_MS;
     }
 
     public static PlaybackManager get(Context context) {
@@ -676,9 +668,6 @@ public final class PlaybackManager {
         if (ShufflePrefs.isOff(app.getApplicationContext())) {
             return;
         }
-        if (com.nightlight.app.util.PowerModes.isLow(app.getApplicationContext())) {
-            return; // Low power: stop at queue end instead of fetching more.
-        }
         if (controller.getRepeatMode() != Player.REPEAT_MODE_OFF) {
             return; // repeat handles looping on its own
         }
@@ -720,17 +709,11 @@ public final class PlaybackManager {
         if (!ShufflePrefs.isSmart(app.getApplicationContext())) {
             return;
         }
-        com.nightlight.app.util.PlaybackProfile profile =
-                com.nightlight.app.util.PlaybackProfile.forMode(
-                        com.nightlight.app.util.PowerModes.get(app.getApplicationContext()));
-        if (profile.topupThreshold < 0) {
-            return; // LOW power: no background prefetch.
-        }
         if (controller.getRepeatMode() != Player.REPEAT_MODE_OFF) {
             return;
         }
         int remaining = controller.getMediaItemCount() - controller.getCurrentMediaItemIndex() - 1;
-        if (remaining > profile.topupThreshold) {
+        if (remaining > TOPUP_THRESHOLD) {
             return;
         }
         Track seed = currentTrack();
@@ -1070,7 +1053,7 @@ public final class PlaybackManager {
         if (next.isPlaying && !tickerRunning) {
             tickerRunning = true;
             main.removeCallbacks(ticker);
-            main.postDelayed(ticker, tickerIntervalMs());
+            main.postDelayed(ticker, TICKER_MS);
         } else if (!next.isPlaying && tickerRunning) {
             tickerRunning = false;
             main.removeCallbacks(ticker);

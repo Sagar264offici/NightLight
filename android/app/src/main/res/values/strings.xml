@@ -93,14 +93,6 @@
     <string name="settings_playback">Playback</string>
     <string name="settings_playback_note">Background playback and media controls are always on.</string>
 
-    <string name="settings_power">Power &amp; experience mode</string>
-    <string name="power_low">Low — ambient screen</string>
-    <string name="power_low_desc">Maximum battery. Minimal decoration, radio stops at queue end.</string>
-    <string name="power_balanced">Balanced (default)</string>
-    <string name="power_balanced_desc">Rounded album art, smooth playback, radio continues with related songs.</string>
-    <string name="power_high">High — fantastic animation</string>
-    <string name="power_high_desc">Larger artwork, subtle motion on the Now Playing screen.</string>
-    <string name="power_mode_saved">Experience mode: %1$s</string>
     <string name="shuffle_mode_saved">Shuffle preference saved</string>
 
     <string name="settings_storage">Storage</string>

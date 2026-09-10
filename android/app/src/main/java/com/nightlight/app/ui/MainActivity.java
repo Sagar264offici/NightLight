@@ -61,7 +61,7 @@ public final class MainActivity extends AppCompatActivity {
     private final Observer<Boolean> onlineObserver = this::onConnectivityChanged;
     private LiveData<Boolean> onlineLiveData;
 
-    private ActivityResultLauncher<String> notificationPermissionLauncher;
+    private ActivityResultLauncher<String[]> permissionLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,10 +94,13 @@ public final class MainActivity extends AppCompatActivity {
         miniPlayer.setOnClickListener(v -> startActivity(new Intent(this, NowPlayingActivity.class)));
         miniPlayPause.setOnClickListener(v -> PlaybackManager.get(this).togglePlayPause());
 
-        notificationPermissionLauncher = registerForActivityResult(
-                new ActivityResultContracts.RequestPermission(), granted -> {
+        permissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                    // Single batch result (Map<String, Boolean>).
+                    // Gracefully handle denial: app continues without notifications.
+                    // No-op here; playback and UI work without the permission.
                 });
-        maybeRequestNotificationPermission();
+        maybeRequestPermissions();
 
         setupFragments(nav);
         setupOfflineBanner();
@@ -177,11 +180,44 @@ public final class MainActivity extends AppCompatActivity {
         offlineBanner.setVisibility(Boolean.TRUE.equals(online) ? View.GONE : View.VISIBLE);
     }
 
-    private void maybeRequestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+    private static final String PREFS_PERMS = "nightlight_perms";
+    private static final String KEY_NOTIF_ASKED = "notif_asked";
+
+    private void maybeRequestPermissions() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return;
         }
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        // Don't nag on every launch: if permanently denied ("Don't ask again"),
+        // shouldShowRequestPermissionRationale is false and we've already asked once.
+        boolean alreadyAsked = getSharedPreferences(PREFS_PERMS, MODE_PRIVATE)
+                .getBoolean(KEY_NOTIF_ASKED, false);
+        boolean shouldShowRationale = shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS);
+
+        if (alreadyAsked && !shouldShowRationale) {
+            // User denied with "Don't ask again" or system policy — respect it.
+            return;
+        }
+        if (shouldShowRationale) {
+            // Contextual explanation before re-asking (spec: don't silently re-prompt).
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Stay in the groove")
+                    .setMessage("Allow notifications so playback controls stay in your notification shade while music plays. You can change this anytime in system settings.")
+                    .setPositiveButton("Allow", (d, w) -> {
+                        getSharedPreferences(PREFS_PERMS, MODE_PRIVATE).edit().putBoolean(KEY_NOTIF_ASKED, true).apply();
+                        permissionLauncher.launch(new String[]{Manifest.permission.POST_NOTIFICATIONS});
+                    })
+                    .setNegativeButton("Not now", (d, w) -> {
+                        getSharedPreferences(PREFS_PERMS, MODE_PRIVATE).edit().putBoolean(KEY_NOTIF_ASKED, true).apply();
+                    })
+                    .show();
+            return;
+        }
+        // First-time ask: batch all genuinely required runtime permissions at once.
+        getSharedPreferences(PREFS_PERMS, MODE_PRIVATE).edit().putBoolean(KEY_NOTIF_ASKED, true).apply();
+        permissionLauncher.launch(new String[]{Manifest.permission.POST_NOTIFICATIONS});
     }
 
     /** Public entry for fragments to switch tabs. */
